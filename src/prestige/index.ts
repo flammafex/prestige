@@ -135,6 +135,7 @@ export class Prestige {
       revealWindowHours: options.config.revealWindowHours,
       maxChoices: options.config.maxChoices,
       maxQuestionLength: options.config.maxQuestionLength,
+      minDurationHours: options.config.minDurationHours,
       ballotGateType: options.config.ballotGate,
     };
 
@@ -674,6 +675,8 @@ export function createTestPrestige(identity?: KeyPair): Prestige {
     revealWindowHours: 1,
     maxChoices: 10,
     maxQuestionLength: 200,
+    // Allow short durations for testing (1 minute minimum)
+    minDurationHours: 1 / 60,
     maxPeers: 10,
     gossipInterval: 1000,
     dataDir: './test-data',

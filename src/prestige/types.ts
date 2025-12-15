@@ -174,6 +174,8 @@ export interface PrestigeConfig {
   revealWindowHours: number;
   maxChoices: number;
   maxQuestionLength: number;
+  /** Minimum ballot duration in hours (default: 1, set lower for testing) */
+  minDurationHours?: number;
 
   // Network
   maxPeers: number;
