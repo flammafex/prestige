@@ -46,6 +46,7 @@ import {
   type GateRequirements,
   type PetitionStatus,
   PetitionBallotGate,
+  OpenBallotGate,
   OpenVoterGate,
   OwnerBallotGate,
   DelegationBallotGate,
@@ -676,6 +677,9 @@ export function createTestPrestige(identity?: KeyPair): Prestige {
     maxPeers: 10,
     gossipInterval: 1000,
     dataDir: './test-data',
+    // Open gates for MVP - anyone can create ballots and vote
+    ballotGate: 'open',
+    voterGate: 'open',
   };
 
   return new Prestige({
@@ -719,6 +723,7 @@ export {
   createVoterGate,
   createProposalGate,
   // Ballot gates
+  OpenBallotGate,
   OwnerBallotGate,
   DelegationBallotGate,
   CloutBallotGate,
