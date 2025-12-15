@@ -202,9 +202,9 @@ export class TallyManager {
         finalized: result.finalized,
       } : null,
       integrity: {
-        allVotesAttested: votes.every(v => v.attestation?.signatures?.length > 0),
+        allVotesAttested: votes.every(v => (v.attestation?.signatures?.length ?? 0) > 0),
         allRevealsVerified: invalidVerifications.length === 0,
-        resultAttested: result?.attestation?.signatures?.length > 0,
+        resultAttested: (result?.attestation?.signatures?.length ?? 0) > 0,
       },
     };
   }
@@ -213,7 +213,7 @@ export class TallyManager {
 /**
  * Live tally (not finalized)
  */
-interface LiveTally {
+export interface LiveTally {
   ballotId: string;
   tally: Record<string, number>;
   totalVotes: number;
@@ -226,7 +226,7 @@ interface LiveTally {
 /**
  * Verification report
  */
-interface VerificationReport {
+export interface VerificationReport {
   ballotId: string;
   ballot: {
     question: string;

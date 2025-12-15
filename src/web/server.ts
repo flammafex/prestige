@@ -7,7 +7,11 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { createPrestige, Prestige, Crypto } from '../prestige/index.js';
+import {
+  createPrestige,
+  createTestPrestige,
+  Crypto,
+} from '../prestige/index.js';
 import type {
   CreateBallotRequest,
   CastVoteRequest,
@@ -17,8 +21,12 @@ import type {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Initialize Prestige
-const prestige = createPrestige();
+// Initialize Prestige - use mocks for MVP/dev mode
+const useMocks = process.env.USE_MOCKS === 'true' || !process.env.WITNESS_URL;
+const prestige = useMocks ? createTestPrestige() : createPrestige();
+if (useMocks) {
+  console.log('Running in mock mode (no external services required)');
+}
 
 const app = express();
 
@@ -529,8 +537,8 @@ app.get('/r/:id', (_req: Request, res: Response) => {
   res.sendFile(join(__dirname, 'public', 'results.html'));
 });
 
-// Catch-all for SPA
-app.get('*', (_req: Request, res: Response) => {
+// Catch-all for SPA (Express 5 syntax)
+app.get('{*splat}', (_req: Request, res: Response) => {
   res.sendFile(join(__dirname, 'public', 'index.html'));
 });
 

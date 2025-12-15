@@ -64,7 +64,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
         );
       }
 
-      const blindData = await blindResponse.json();
+      const blindData = await blindResponse.json() as { blindedToken: string };
 
       // Step 2: Get signed token
       const signResponse = await fetch(`${this.config.issuerUrl}/sign`, {
@@ -84,7 +84,12 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
         );
       }
 
-      const signData = await signResponse.json();
+      const signData = await signResponse.json() as {
+        blindedToken: string;
+        proof: string;
+        issuerPublicKey: string;
+        expiresAt: number;
+      };
 
       return {
         blindedToken: signData.blindedToken,
@@ -118,7 +123,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
         return false;
       }
 
-      const data = await response.json();
+      const data = await response.json() as { valid: boolean };
       return data.valid === true;
     } catch {
       // On network error, fail open for availability

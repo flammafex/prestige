@@ -199,7 +199,7 @@ export class RevealManager {
 /**
  * Reveal statistics
  */
-interface RevealStats {
+export interface RevealStats {
   totalVotes: number;
   totalReveals: number;
   validReveals: number;

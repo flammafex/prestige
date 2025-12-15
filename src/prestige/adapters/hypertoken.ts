@@ -198,7 +198,7 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
 export class MockHyperTokenAdapter implements HyperTokenAdapter {
   private messageHandlers: Set<MessageHandler> = new Set();
   private peers: Map<string, PeerConnection> = new Map();
-  private connected = false;
+  private connected = true; // Start connected for testing convenience
   private sentMessages: GossipMessage[] = [];
 
   async connect(): Promise<void> {
