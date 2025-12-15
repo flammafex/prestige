@@ -62,7 +62,12 @@ export class HttpWitnessAdapter implements WitnessAdapter {
         );
       }
 
-      const data = await response.json();
+      const data = await response.json() as {
+        hash: string;
+        timestamp: number;
+        signatures: Array<{ witnessId: string; signature: string }>;
+        witnessIds: string[];
+      };
 
       return {
         hash: data.hash,
@@ -91,7 +96,7 @@ export class HttpWitnessAdapter implements WitnessAdapter {
         return false;
       }
 
-      const data = await response.json();
+      const data = await response.json() as { valid: boolean; signatureCount: number };
       return data.valid === true && data.signatureCount >= this.threshold;
     } catch {
       console.warn('Witness verification failed');

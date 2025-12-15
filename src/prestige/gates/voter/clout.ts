@@ -71,7 +71,7 @@ export class CloutVoterGate implements VoterGate {
         return -1;
       }
 
-      const data = await response.json();
+      const data = await response.json() as { distance?: number };
       return data.distance ?? -1;
     } catch (error) {
       console.error('Failed to query Clout trust distance:', error);

@@ -338,7 +338,7 @@ export class VoteManager {
         return { allowed: false, reason: 'Failed to verify trust graph eligibility' };
       }
 
-      const data = await response.json();
+      const data = await response.json() as { distance?: number };
       const distance = data.distance ?? -1;
 
       if (distance < 0) {
@@ -390,7 +390,7 @@ export class VoteManager {
         return { allowed: false, reason: 'Failed to verify token ownership' };
       }
 
-      const data = await response.json();
+      const data = await response.json() as { verified?: boolean };
       if (data.verified) {
         return { allowed: true };
       }

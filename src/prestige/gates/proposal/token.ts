@@ -65,7 +65,7 @@ export class TokenProposalGate implements ProposalGate {
         return false;
       }
 
-      const data = await response.json();
+      const data = await response.json() as { verified?: boolean };
       return data.verified === true;
     } catch (error) {
       console.error('Failed to verify token ownership:', error);

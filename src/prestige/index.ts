@@ -14,8 +14,8 @@
 import { Crypto } from './crypto.js';
 import { BallotManager, type BallotManagerConfig } from './ballot.js';
 import { VoteManager, type VoteManagerConfig } from './vote.js';
-import { RevealManager } from './reveal.js';
-import { TallyManager } from './tally.js';
+import { RevealManager, type RevealStats } from './reveal.js';
+import { TallyManager, type LiveTally, type VerificationReport } from './tally.js';
 import { NullifierGossip, type GossipConfig } from './gossip.js';
 import { SQLiteStore, InMemoryStore } from './storage.js';
 import {
@@ -693,8 +693,8 @@ export { Crypto } from './crypto.js';
 export type * from './types.js';
 export { BallotManager } from './ballot.js';
 export { VoteManager } from './vote.js';
-export { RevealManager } from './reveal.js';
-export { TallyManager } from './tally.js';
+export { RevealManager, type RevealStats } from './reveal.js';
+export { TallyManager, type LiveTally, type VerificationReport } from './tally.js';
 export { NullifierGossip } from './gossip.js';
 export { SQLiteStore, InMemoryStore } from './storage.js';
 export {
