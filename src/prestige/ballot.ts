@@ -23,6 +23,8 @@ export interface BallotManagerConfig {
   revealWindowHours: number;
   maxChoices: number;
   maxQuestionLength: number;
+  /** Minimum duration in hours (default: 1, set lower for testing) */
+  minDurationHours?: number;
   /** The type of ballot gate being used (for initial status) */
   ballotGateType?: BallotGateType;
 }
@@ -240,8 +242,13 @@ export class BallotManager {
 
     // Validate duration if provided
     if (request.durationHours !== undefined) {
-      if (request.durationHours < 1) {
-        throw new PrestigeValidationError('Duration must be at least 1 hour');
+      const minDuration = this.config.minDurationHours ?? 1;
+      if (request.durationHours < minDuration) {
+        throw new PrestigeValidationError(
+          minDuration < 1
+            ? `Duration must be at least ${Math.round(minDuration * 60)} minutes`
+            : `Duration must be at least ${minDuration} hour${minDuration === 1 ? '' : 's'}`
+        );
       }
       if (request.durationHours > 720) { // 30 days
         throw new PrestigeValidationError('Duration cannot exceed 30 days');
