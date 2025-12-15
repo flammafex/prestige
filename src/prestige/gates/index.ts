@@ -9,6 +9,7 @@ import type { FreebirdAdapter } from '../adapters/freebird.js';
 import type { BallotGate, VoterGate, GateConfig } from './types.js';
 
 // Ballot Gates
+import { OpenBallotGate } from './ballot/open.js';
 import { OwnerBallotGate } from './ballot/owner.js';
 import { DelegationBallotGate } from './ballot/delegation.js';
 import { CloutBallotGate } from './ballot/clout.js';
@@ -44,6 +45,9 @@ export function createBallotGate(options: GateFactoryOptions): BallotGate {
   const { config, store, freebird, instancePublicKey } = options;
 
   switch (config.ballotGate) {
+    case 'open':
+      return new OpenBallotGate();
+
     case 'owner':
       return new OwnerBallotGate(config.ballotGateAdminKey ?? instancePublicKey);
 
@@ -150,6 +154,7 @@ export function createVoterGate(options: GateFactoryOptions): VoterGate {
 export * from './types.js';
 
 // Re-export ballot gates
+export { OpenBallotGate } from './ballot/open.js';
 export { OwnerBallotGate } from './ballot/owner.js';
 export { DelegationBallotGate } from './ballot/delegation.js';
 export { CloutBallotGate } from './ballot/clout.js';

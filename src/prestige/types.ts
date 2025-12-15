@@ -157,7 +157,7 @@ export interface PrestigeStore {
 }
 
 // Gate types
-export type BallotGateType = 'owner' | 'delegation' | 'clout' | 'freebird' | 'petition';
+export type BallotGateType = 'open' | 'owner' | 'delegation' | 'clout' | 'freebird' | 'petition';
 export type VoterGateType = 'open' | 'freebird' | 'clout' | 'scarbucks' | 'allowlist';
 export type ProposalGateType = 'voters' | 'clout' | 'delegation' | 'token';
 

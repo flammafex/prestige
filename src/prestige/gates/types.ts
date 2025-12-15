@@ -89,7 +89,7 @@ export interface PetitionStatus {
 /**
  * Ballot gate types
  */
-export type BallotGateType = 'owner' | 'delegation' | 'clout' | 'freebird' | 'petition';
+export type BallotGateType = 'open' | 'owner' | 'delegation' | 'clout' | 'freebird' | 'petition';
 
 /**
  * Voter gate types
