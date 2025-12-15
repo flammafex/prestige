@@ -33,12 +33,12 @@ const api = {
 
   // ============= Ballot Operations =============
 
-  async createBallot({ question, choices, durationHours, revealWindowHours, eligibility }) {
+  async createBallot({ question, choices, durationMinutes, revealWindowMinutes, eligibility }) {
     return this.request('POST', '/api/ballot', {
       question,
       choices,
-      durationHours,
-      revealWindowHours,
+      durationMinutes,
+      revealWindowMinutes,
       eligibility,
     });
   },

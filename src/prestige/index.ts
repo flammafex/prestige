@@ -131,11 +131,11 @@ export class Prestige {
 
     // Initialize managers
     const ballotConfig: BallotManagerConfig = {
-      defaultBallotDurationHours: options.config.defaultBallotDurationHours,
-      revealWindowHours: options.config.revealWindowHours,
+      defaultBallotDurationMinutes: options.config.defaultBallotDurationMinutes,
+      revealWindowMinutes: options.config.revealWindowMinutes,
       maxChoices: options.config.maxChoices,
       maxQuestionLength: options.config.maxQuestionLength,
-      minDurationHours: options.config.minDurationHours,
+      minDurationMinutes: options.config.minDurationMinutes,
       ballotGateType: options.config.ballotGate,
     };
 
@@ -608,9 +608,9 @@ export function createPrestige(configOverrides?: Partial<PrestigeConfig>): Prest
     witnessUrl: process.env.WITNESS_URL ?? 'http://localhost:8080',
     hypertokenRelayUrl: process.env.HYPERTOKEN_RELAY_URL ?? 'ws://localhost:3001',
 
-    // Defaults
-    defaultBallotDurationHours: 24,
-    revealWindowHours: 24,
+    // Defaults (24 hours = 1440 minutes)
+    defaultBallotDurationMinutes: 1440,
+    revealWindowMinutes: 1440,
     maxChoices: 20,
     maxQuestionLength: 500,
     maxPeers: 50,
@@ -671,12 +671,12 @@ export function createTestPrestige(identity?: KeyPair): Prestige {
     freebirdVerifierUrl: 'http://mock',
     witnessUrl: 'http://mock',
     hypertokenRelayUrl: 'ws://mock',
-    defaultBallotDurationHours: 1,
-    revealWindowHours: 1,
+    defaultBallotDurationMinutes: 60,
+    revealWindowMinutes: 60,
     maxChoices: 10,
     maxQuestionLength: 200,
     // Allow short durations for testing (1 minute minimum)
-    minDurationHours: 1 / 60,
+    minDurationMinutes: 1,
     maxPeers: 10,
     gossipInterval: 1000,
     dataDir: './test-data',

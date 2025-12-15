@@ -25,7 +25,7 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'What is the best color?',
         choices: ['Red', 'Blue', 'Green'],
-        durationHours: 1,
+        durationMinutes: 60,
       });
 
       expect(ballot.id).toBeDefined();
@@ -88,7 +88,7 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test vote',
         choices: ['Yes', 'No'],
-        durationHours: 1,
+        durationMinutes: 60,
       });
 
       const voterSecret = prestige.generateVoterSecret();
@@ -115,7 +115,7 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test',
         choices: ['A', 'B'],
-        durationHours: 1,
+        durationMinutes: 60,
       });
 
       const voterSecret = prestige.generateVoterSecret();
@@ -148,7 +148,7 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test',
         choices: ['A', 'B'],
-        durationHours: 1,
+        durationMinutes: 60,
       });
 
       // Cast 3 votes
@@ -178,8 +178,8 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test commit-reveal',
         choices: ['Option A', 'Option B'],
-        durationHours: 0.001, // Very short for testing
-        revealWindowHours: 1,
+        durationMinutes: 1, // Very short for testing
+        revealWindowMinutes: 1,
       });
 
       // Cast votes
@@ -250,7 +250,7 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test',
         choices: ['A', 'B'],
-        durationHours: 0.001,
+        durationMinutes: 1,
       });
 
       const voterSecret = prestige.generateVoterSecret();
@@ -288,7 +288,7 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test',
         choices: ['A', 'B'],
-        durationHours: 0.001,
+        durationMinutes: 1,
       });
 
       const voterSecret = prestige.generateVoterSecret();
@@ -328,8 +328,8 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test',
         choices: ['X', 'Y', 'Z'],
-        durationHours: 0.001,
-        revealWindowHours: 0.001,
+        durationMinutes: 1,
+        revealWindowMinutes: 0.001,
       });
 
       // Vote and reveal: 2 for X, 1 for Y, 0 for Z
@@ -397,7 +397,7 @@ describe('Prestige Integration', () => {
       const ballot = await prestige.createBallot({
         question: 'Test',
         choices: ['A', 'B'],
-        durationHours: 0.001,
+        durationMinutes: 1,
       });
 
       const voterSecret = prestige.generateVoterSecret();

@@ -114,11 +114,11 @@ async function createBallot() {
     return;
   }
 
-  const durationStr = await prompt('\nVoting duration in hours (default: 24): ');
-  const durationHours = parseInt(durationStr, 10) || 24;
+  const durationStr = await prompt('\nVoting duration in minutes (default: 60): ');
+  const durationMinutes = parseInt(durationStr, 10) || 60;
 
-  const revealStr = await prompt('Reveal window in hours (default: 24): ');
-  const revealWindowHours = parseInt(revealStr, 10) || 24;
+  const revealStr = await prompt('Reveal window in minutes (default: 60): ');
+  const revealWindowMinutes = parseInt(revealStr, 10) || 60;
 
   console.log('\nCreating ballot...');
 
@@ -127,8 +127,8 @@ async function createBallot() {
     const ballot = await prestige.createBallot({
       question,
       choices,
-      durationHours,
-      revealWindowHours,
+      durationMinutes,
+      revealWindowMinutes,
     });
 
     console.log('\nBallot created successfully!');
