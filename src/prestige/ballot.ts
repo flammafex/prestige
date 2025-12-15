@@ -19,12 +19,12 @@ import type { WitnessAdapter } from './adapters/witness.js';
 import type { BallotGate, GateResult, VoterGate } from './gates/types.js';
 
 export interface BallotManagerConfig {
-  defaultBallotDurationHours: number;
-  revealWindowHours: number;
+  defaultBallotDurationMinutes: number;
+  revealWindowMinutes: number;
   maxChoices: number;
   maxQuestionLength: number;
-  /** Minimum duration in hours (default: 1, set lower for testing) */
-  minDurationHours?: number;
+  /** Minimum duration in minutes (default: 1) */
+  minDurationMinutes?: number;
   /** The type of ballot gate being used (for initial status) */
   ballotGateType?: BallotGateType;
 }
@@ -49,8 +49,8 @@ export class BallotManager {
     this.validateBallotRequest(request);
 
     const now = Date.now();
-    const durationMs = (request.durationHours ?? this.config.defaultBallotDurationHours) * 60 * 60 * 1000;
-    const revealWindowMs = (request.revealWindowHours ?? this.config.revealWindowHours) * 60 * 60 * 1000;
+    const durationMs = (request.durationMinutes ?? this.config.defaultBallotDurationMinutes) * 60 * 1000;
+    const revealWindowMs = (request.revealWindowMinutes ?? this.config.revealWindowMinutes) * 60 * 1000;
 
     // For petition gate, deadlines are set when petition threshold is met
     // Use placeholder values that will be updated on activation
@@ -91,7 +91,7 @@ export class BallotManager {
    * Activate a ballot from petition status
    * Called when petition threshold is met
    */
-  async activateBallot(ballotId: string, durationHours?: number, revealWindowHours?: number): Promise<Ballot> {
+  async activateBallot(ballotId: string, durationMinutes?: number, revealWindowMinutes?: number): Promise<Ballot> {
     const ballot = await this.store.getBallot(ballotId);
     if (!ballot) {
       throw new PrestigeValidationError('Ballot not found');
@@ -102,8 +102,8 @@ export class BallotManager {
     }
 
     const now = Date.now();
-    const durationMs = (durationHours ?? this.config.defaultBallotDurationHours) * 60 * 60 * 1000;
-    const revealWindowMs = (revealWindowHours ?? this.config.revealWindowHours) * 60 * 60 * 1000;
+    const durationMs = (durationMinutes ?? this.config.defaultBallotDurationMinutes) * 60 * 1000;
+    const revealWindowMs = (revealWindowMinutes ?? this.config.revealWindowMinutes) * 60 * 1000;
 
     ballot.deadline = now + durationMs;
     ballot.revealDeadline = now + durationMs + revealWindowMs;
@@ -241,16 +241,14 @@ export class BallotManager {
     }
 
     // Validate duration if provided
-    if (request.durationHours !== undefined) {
-      const minDuration = this.config.minDurationHours ?? 1;
-      if (request.durationHours < minDuration) {
+    if (request.durationMinutes !== undefined) {
+      const minDuration = this.config.minDurationMinutes ?? 1;
+      if (request.durationMinutes < minDuration) {
         throw new PrestigeValidationError(
-          minDuration < 1
-            ? `Duration must be at least ${Math.round(minDuration * 60)} minutes`
-            : `Duration must be at least ${minDuration} hour${minDuration === 1 ? '' : 's'}`
+          `Duration must be at least ${minDuration} minute${minDuration === 1 ? '' : 's'}`
         );
       }
-      if (request.durationHours > 720) { // 30 days
+      if (request.durationMinutes > 43200) { // 30 days in minutes
         throw new PrestigeValidationError('Duration cannot exceed 30 days');
       }
     }

@@ -170,12 +170,12 @@ export interface PrestigeConfig {
   hypertokenRelayUrl: string;
 
   // Defaults
-  defaultBallotDurationHours: number;
-  revealWindowHours: number;
+  defaultBallotDurationMinutes: number;
+  revealWindowMinutes: number;
   maxChoices: number;
   maxQuestionLength: number;
-  /** Minimum ballot duration in hours (default: 1, set lower for testing) */
-  minDurationHours?: number;
+  /** Minimum ballot duration in minutes (default: 1) */
+  minDurationMinutes?: number;
 
   // Network
   maxPeers: number;
@@ -222,8 +222,8 @@ export interface PrestigeConfig {
 export interface CreateBallotRequest {
   question: string;
   choices: string[];
-  durationHours?: number;
-  revealWindowHours?: number;
+  durationMinutes?: number;
+  revealWindowMinutes?: number;
   eligibility?: EligibilityConfig;
 }
 

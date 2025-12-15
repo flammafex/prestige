@@ -128,8 +128,8 @@ app.post('/api/ballot', async (req: Request, res: Response) => {
     const request: CreateBallotRequest = {
       question: req.body.question,
       choices: req.body.choices,
-      durationHours: req.body.durationHours,
-      revealWindowHours: req.body.revealWindowHours,
+      durationMinutes: req.body.durationMinutes,
+      revealWindowMinutes: req.body.revealWindowMinutes,
       eligibility: req.body.eligibility,
     };
 

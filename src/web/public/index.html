@@ -61,29 +61,29 @@
             </div>
 
             <div class="form-group">
-              <label for="duration">Voting Duration (hours)</label>
+              <label for="duration">Voting Duration (minutes)</label>
               <input
                 type="number"
                 id="duration"
                 name="duration"
-                value="24"
+                value="60"
                 min="1"
-                max="720"
+                max="43200"
               >
-              <p class="hint">How long should voting be open?</p>
+              <p class="hint">How long should voting be open? (1440 = 24 hours)</p>
             </div>
 
             <div class="form-group">
-              <label for="reveal-window">Reveal Window (hours)</label>
+              <label for="reveal-window">Reveal Window (minutes)</label>
               <input
                 type="number"
                 id="reveal-window"
                 name="reveal-window"
-                value="24"
+                value="60"
                 min="1"
-                max="168"
+                max="10080"
               >
-              <p class="hint">Time for voters to reveal their choices after voting ends</p>
+              <p class="hint">Time for voters to reveal after voting ends (1440 = 24 hours)</p>
             </div>
 
             <button type="submit" class="btn btn-primary btn-block" id="create-btn">
@@ -186,14 +186,14 @@
         const question = document.getElementById('question').value;
         const choiceInputs = document.querySelectorAll('#choices-container input');
         const choices = Array.from(choiceInputs).map(input => input.value).filter(v => v.trim());
-        const durationHours = parseInt(document.getElementById('duration').value, 10);
-        const revealWindowHours = parseInt(document.getElementById('reveal-window').value, 10);
+        const durationMinutes = parseInt(document.getElementById('duration').value, 10);
+        const revealWindowMinutes = parseInt(document.getElementById('reveal-window').value, 10);
 
         const result = await api.createBallot({
           question,
           choices,
-          durationHours,
-          revealWindowHours,
+          durationMinutes,
+          revealWindowMinutes,
         });
 
         // Show success
