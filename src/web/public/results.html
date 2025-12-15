@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Results - Prestige</title>
+  <meta name="description" content="Verifiable voting results">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a0a0f">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1><a href="/" style="color: inherit; text-decoration: none;">Prestige</a></h1>
+      <p class="tagline">Secret ballot. Public proof.</p>
+    </header>
+
+    <main>
+      <!-- Loading State -->
+      <div class="card" id="loading-card">
+        <div class="loading">
+          <div class="spinner"></div>
+          Loading results...
+        </div>
+      </div>
+
+      <!-- Error State -->
+      <div class="card hidden" id="error-card">
+        <div class="alert alert-error" id="error-message">
+          Results not found
+        </div>
+        <a href="/" class="btn btn-secondary btn-block">Back to Home</a>
+      </div>
+
+      <!-- Results Card -->
+      <div class="card hidden" id="results-card">
+        <div class="card-header">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <h2 class="card-title" id="ballot-question"></h2>
+            <span class="badge" id="ballot-status"></span>
+          </div>
+        </div>
+
+        <div id="live-warning" class="alert alert-warning hidden">
+          Results are not finalized. This is a live preview during the reveal phase.
+        </div>
+
+        <div id="results-container"></div>
+      </div>
+
+      <!-- Verification Card -->
+      <div class="card hidden" id="verification-card">
+        <div class="card-header">
+          <h3 class="card-title">Verification</h3>
+          <p class="card-subtitle">Cryptographic proof of ballot integrity</p>
+        </div>
+
+        <div class="verification-summary">
+          <div class="verification-item">
+            <div class="verification-value" id="verify-votes">0</div>
+            <div class="verification-label">Votes Cast</div>
+          </div>
+          <div class="verification-item">
+            <div class="verification-value" id="verify-reveals">0</div>
+            <div class="verification-label">Reveals</div>
+          </div>
+          <div class="verification-item">
+            <div class="verification-value" id="verify-valid">0</div>
+            <div class="verification-label">Valid</div>
+          </div>
+        </div>
+
+        <div id="integrity-checks" style="margin-top: 1rem;">
+          <div class="check-item" id="check-attestation">
+            <span class="check-icon"></span>
+            <span class="check-text">All votes attested by witnesses</span>
+          </div>
+          <div class="check-item" id="check-reveals">
+            <span class="check-icon"></span>
+            <span class="check-text">All reveals verified against commitments</span>
+          </div>
+          <div class="check-item" id="check-result">
+            <span class="check-icon"></span>
+            <span class="check-text">Result attested by witnesses</span>
+          </div>
+        </div>
+
+        <style>
+          .check-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            color: var(--text-secondary);
+          }
+          .check-item.valid .check-icon::before {
+            content: "✓";
+            color: var(--success);
+          }
+          .check-item.invalid .check-icon::before {
+            content: "✗";
+            color: var(--error);
+          }
+          .check-item.pending .check-icon::before {
+            content: "○";
+            color: var(--text-muted);
+          }
+        </style>
+      </div>
+
+      <!-- Attestation Details -->
+      <div class="card hidden" id="attestation-card">
+        <div class="card-header">
+          <h3 class="card-title">Witness Attestation</h3>
+          <p class="card-subtitle">Cryptographic timestamp proof</p>
+        </div>
+
+        <div class="form-group">
+          <label>Result Hash</label>
+          <input type="text" id="attestation-hash" readonly style="font-family: monospace; font-size: 0.75rem;">
+        </div>
+
+        <div class="form-group">
+          <label>Timestamp</label>
+          <input type="text" id="attestation-time" readonly>
+        </div>
+
+        <div class="form-group">
+          <label>Witnesses</label>
+          <div id="attestation-witnesses" style="font-family: monospace; font-size: 0.75rem; color: var(--text-secondary);"></div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="card hidden" id="actions-card">
+        <div class="btn-group" style="flex-direction: column; gap: 0.5rem;">
+          <a href="#" id="vote-link" class="btn btn-primary btn-block">Vote on this Ballot</a>
+          <a href="/" class="btn btn-secondary btn-block">Create New Ballot</a>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>Results are cryptographically verifiable by anyone.</p>
+    </footer>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    // Get ballot ID from URL
+    const pathParts = window.location.pathname.split('/');
+    const ballotId = pathParts[pathParts.length - 1];
+
+    async function loadResults() {
+      const loadingCard = document.getElementById('loading-card');
+      const errorCard = document.getElementById('error-card');
+      const resultsCard = document.getElementById('results-card');
+      const verificationCard = document.getElementById('verification-card');
+      const attestationCard = document.getElementById('attestation-card');
+      const actionsCard = document.getElementById('actions-card');
+
+      try {
+        // Get ballot info
+        const ballot = await api.getBallot(ballotId);
+
+        // Get results (may be live or finalized)
+        const results = await api.getResults(ballotId);
+
+        // Hide loading
+        loadingCard.classList.add('hidden');
+
+        // Set ballot info
+        document.getElementById('ballot-question').textContent = ballot.question;
+
+        const statusEl = document.getElementById('ballot-status');
+        statusEl.textContent = ballot.status;
+        statusEl.className = 'badge badge-' + ballot.status;
+
+        // Show live warning if not finalized
+        if (results.warning || ballot.status !== 'finalized') {
+          document.getElementById('live-warning').classList.remove('hidden');
+        }
+
+        // Render results
+        renderResults(results, ballot);
+
+        // Show cards
+        resultsCard.classList.remove('hidden');
+        actionsCard.classList.remove('hidden');
+
+        // Get verification report
+        try {
+          const report = await api.getVerificationReport(ballotId);
+          renderVerification(report);
+          verificationCard.classList.remove('hidden');
+
+          if (report.result?.attestation) {
+            renderAttestation(report.result.attestation);
+            attestationCard.classList.remove('hidden');
+          }
+        } catch (e) {
+          console.log('Verification not available yet');
+        }
+
+        // Set vote link
+        document.getElementById('vote-link').href = `/b/${ballotId}`;
+
+      } catch (error) {
+        loadingCard.classList.add('hidden');
+        errorCard.classList.remove('hidden');
+        document.getElementById('error-message').textContent = error.message;
+      }
+    }
+
+    function renderResults(results, ballot) {
+      const container = document.getElementById('results-container');
+      const tally = results.tally || {};
+      const totalVotes = results.totalVotes || results.validReveals || 0;
+
+      // Find max votes for winner highlighting
+      const maxVotes = Math.max(...Object.values(tally), 0);
+
+      // Sort by vote count
+      const sortedChoices = ballot.choices.sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
+
+      container.innerHTML = sortedChoices.map(choice => {
+        const votes = tally[choice] || 0;
+        const percentage = totalVotes > 0 ? (votes / totalVotes * 100) : 0;
+        const isWinner = votes === maxVotes && maxVotes > 0;
+
+        return `
+          <div class="result-bar-container">
+            <div class="result-label">
+              <span class="result-choice">${escapeHtml(choice)}</span>
+              <span class="result-count">${votes} votes (${percentage.toFixed(1)}%)</span>
+            </div>
+            <div class="result-bar">
+              <div class="result-bar-fill ${isWinner ? 'winner' : ''}" style="width: ${percentage}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderVerification(report) {
+      document.getElementById('verify-votes').textContent = report.votes.total;
+      document.getElementById('verify-reveals').textContent = report.reveals.total;
+      document.getElementById('verify-valid').textContent = report.reveals.valid;
+
+      // Integrity checks
+      const checkAttestation = document.getElementById('check-attestation');
+      const checkReveals = document.getElementById('check-reveals');
+      const checkResult = document.getElementById('check-result');
+
+      checkAttestation.className = 'check-item ' + (report.integrity.allVotesAttested ? 'valid' : 'pending');
+      checkReveals.className = 'check-item ' + (report.integrity.allRevealsVerified ? 'valid' : 'invalid');
+      checkResult.className = 'check-item ' + (report.integrity.resultAttested ? 'valid' : 'pending');
+    }
+
+    function renderAttestation(attestation) {
+      document.getElementById('attestation-hash').value = attestation.hash;
+      document.getElementById('attestation-time').value = new Date(attestation.timestamp).toISOString();
+      document.getElementById('attestation-witnesses').textContent = attestation.witnessIds.join('\n');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', loadResults);
+  </script>
+</body>
+</html>

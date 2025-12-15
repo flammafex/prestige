@@ -1,0 +1,234 @@
+version: "3.8"
+
+services:
+  # Main Prestige application
+  prestige:
+    build:
+      context: .
+      target: runtime
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATA_DIR=/data
+      - FREEBIRD_ISSUER_URL=http://freebird-issuer:8081
+      - FREEBIRD_VERIFIER_URL=http://freebird-verifier:8082
+      - WITNESS_URL=http://witness-gateway:8080
+      - HYPERTOKEN_RELAY_URL=ws://hypertoken-relay:3001
+    volumes:
+      - prestige-data:/data
+    depends_on:
+      freebird-issuer:
+        condition: service_healthy
+      freebird-verifier:
+        condition: service_healthy
+      witness-gateway:
+        condition: service_healthy
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prestige CLI
+  prestige-cli:
+    build:
+      context: .
+      target: cli
+    environment:
+      - PRESTIGE_API_URL=http://prestige:3000
+      - FREEBIRD_ISSUER_URL=http://freebird-issuer:8081
+      - WITNESS_URL=http://witness-gateway:8080
+    volumes:
+      - prestige-cli-data:/data
+    depends_on:
+      - prestige
+    networks:
+      - prestige-net
+    profiles:
+      - cli
+    stdin_open: true
+    tty: true
+
+  # Freebird Issuer - Token issuance via VOPRF
+  freebird-issuer:
+    image: ghcr.io/flammafex/freebird-issuer:latest
+    ports:
+      - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
+    environment:
+      - PORT=8081
+      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:-open}
+      - TOKEN_TTL_MINUTES=${TOKEN_TTL:-60}
+      - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-}
+    volumes:
+      - freebird-issuer-data:/data
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Freebird Verifier - Token verification
+  freebird-verifier:
+    image: ghcr.io/flammafex/freebird-verifier:latest
+    ports:
+      - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
+    environment:
+      - PORT=8082
+      - ISSUER_WELLKNOWN_URL=http://freebird-issuer:8081/.well-known/voprf
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - freebird-issuer
+      - redis
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis - Caching layer for verifier
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Witness setup - Generates keys and configures cluster
+  witness-setup:
+    image: ghcr.io/flammafex/witness:latest
+    command: setup --nodes=3 --threshold=2 --output=/config
+    volumes:
+      - witness-config:/config
+    networks:
+      - prestige-net
+
+  # Witness Node 1
+  witness-1:
+    image: ghcr.io/flammafex/witness:latest
+    environment:
+      - NODE_ID=1
+      - CONFIG_DIR=/config
+      - PORT=8080
+    volumes:
+      - witness-config:/config:ro
+      - witness-1-data:/data
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Witness Node 2
+  witness-2:
+    image: ghcr.io/flammafex/witness:latest
+    environment:
+      - NODE_ID=2
+      - CONFIG_DIR=/config
+      - PORT=8080
+    volumes:
+      - witness-config:/config:ro
+      - witness-2-data:/data
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Witness Node 3
+  witness-3:
+    image: ghcr.io/flammafex/witness:latest
+    environment:
+      - NODE_ID=3
+      - CONFIG_DIR=/config
+      - PORT=8080
+    volumes:
+      - witness-config:/config:ro
+      - witness-3-data:/data
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Witness Gateway - Aggregates BFT consensus
+  witness-gateway:
+    image: ghcr.io/flammafex/witness-gateway:latest
+    ports:
+      - "${WITNESS_PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - CONFIG_DIR=/config
+      - THRESHOLD=2
+      - WITNESS_URLS=http://witness-1:8080,http://witness-2:8080,http://witness-3:8080
+      - DATABASE=memory
+    volumes:
+      - witness-config:/config:ro
+    depends_on:
+      - witness-1
+      - witness-2
+      - witness-3
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # HyperToken Relay - Real-time P2P communication
+  hypertoken-relay:
+    image: ghcr.io/flammafex/hypertoken-relay:latest
+    ports:
+      - "${RELAY_PORT:-3001}:3001"
+    environment:
+      - PORT=3001
+      - MAX_CONNECTIONS=${RELAY_MAX_CONNECTIONS:-1000}
+    networks:
+      - prestige-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "const ws = new (require('ws'))('ws://localhost:3001'); ws.on('open', () => process.exit(0)); ws.on('error', () => process.exit(1)); setTimeout(() => process.exit(1), 5000);"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  prestige-net:
+    driver: bridge
+
+volumes:
+  prestige-data:
+  prestige-cli-data:
+  freebird-issuer-data:
+  redis-data:
+  witness-config:
+  witness-1-data:
+  witness-2-data:
+  witness-3-data:
