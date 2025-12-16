@@ -104,9 +104,23 @@
           </form>
         </div>
 
-        <!-- Already Voted -->
-        <div id="voted-section" class="hidden">
+        <!-- Just Voted (shown immediately after casting vote) -->
+        <div id="just-voted-section" class="hidden">
           <div class="alert alert-success">
+            Thank you for voting! Your vote has been recorded.
+          </div>
+
+          <div id="just-voted-reveal-notice">
+            <p style="margin: 1rem 0; color: var(--text-secondary);">
+              After voting ends, you'll need to reveal your choice for it to be counted.
+              Your reveal data is stored locally in this browser.
+            </p>
+          </div>
+        </div>
+
+        <!-- Already Voted (shown on revisit) -->
+        <div id="voted-section" class="hidden">
+          <div class="alert alert-info">
             You have already voted on this ballot.
           </div>
 

@@ -157,8 +157,7 @@
       <!-- Actions -->
       <div class="card hidden" id="actions-card">
         <div class="btn-group" style="flex-direction: column; gap: 0.5rem;">
-          <a href="#" id="vote-link" class="btn btn-primary btn-block">Vote on this Ballot</a>
-          <a href="/" class="btn btn-secondary btn-block">Create New Ballot</a>
+          <a href="/" class="btn btn-primary btn-block">Create New Ballot</a>
         </div>
       </div>
     </main>
@@ -217,11 +216,6 @@
         // Show cards
         resultsCard.classList.remove('hidden');
         actionsCard.classList.remove('hidden');
-
-        // Update action button for finalized state
-        const voteLink = document.getElementById('vote-link');
-        voteLink.textContent = 'View Ballot';
-        voteLink.href = `/b/${ballotId}`;
 
         // Get verification report
         try {
