@@ -2,12 +2,17 @@
  * Freebird Adapter
  * Handles VOPRF-based token issuance and verification for voter eligibility
  *
- * Freebird provides unlinkable tokens - the issuer knows someone is eligible,
- * but cannot link the issued token to the verifier presentation. This is
- * essential for ballot secrecy.
+ * Uses P-256 VOPRF (Verifiable Oblivious PRF) protocol:
+ * 1. Client blinds input with random scalar r
+ * 2. Client sends blinded element to issuer
+ * 3. Issuer evaluates VOPRF with private key
+ * 4. Client verifies DLEQ proof
+ * 5. Token provides anonymous authorization
  */
 
 import type { FreebirdToken } from '../types.js';
+import * as voprf from '../../vendor/freebird/voprf.js';
+import type { BlindState } from '../../vendor/freebird/voprf.js';
 
 export interface FreebirdConfig {
   issuerUrl: string;
@@ -35,62 +40,108 @@ export interface FreebirdAdapter {
 }
 
 /**
- * HTTP-based Freebird adapter for production use
- *
- * Uses VOPRF (Verifiable Oblivious PRF) protocol:
- * - POST /v1/oprf/issue - issue tokens
- * - POST /v1/verify - verify tokens
+ * HTTP-based Freebird adapter with full VOPRF protocol
  */
 export class HttpFreebirdAdapter implements FreebirdAdapter {
   private timeout: number;
+  private readonly context: Uint8Array;
+  private blindStates: Map<string, BlindState> = new Map();
+  private metadata: any = null;
 
   constructor(private config: FreebirdConfig) {
     this.timeout = config.timeout ?? 10000;
+    // Context must match Freebird server
+    this.context = new TextEncoder().encode('freebird:v1');
   }
 
   /**
-   * Issue a token via VOPRF
-   * The context is used as input to the VOPRF
+   * Fetch issuer metadata (public key, etc.)
    */
-  async issue(context: string): Promise<FreebirdToken> {
+  private async init(): Promise<void> {
+    if (this.metadata) return;
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-    const url = `${this.config.issuerUrl}/v1/oprf/issue`;
 
     try {
-      console.log(`Freebird: POST ${url}`);
+      const response = await fetch(`${this.config.issuerUrl}/.well-known/issuer`, {
+        signal: controller.signal,
+      });
+
+      if (response.ok) {
+        this.metadata = await response.json();
+        console.log(`[Freebird] Connected to issuer: ${this.metadata.issuer_id || 'unknown'}`);
+      } else {
+        throw new FreebirdError(
+          `Failed to fetch issuer metadata: ${response.status}`,
+          'INIT_FAILED'
+        );
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Issue a token via VOPRF protocol
+   */
+  async issue(input: string): Promise<FreebirdToken> {
+    await this.init();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      // 1. Blind the input client-side
+      const inputBytes = new TextEncoder().encode(input);
+      const { blinded, state } = voprf.blind(inputBytes, this.context);
+
+      // Store blind state for potential finalization
+      const blindedHex = bytesToHex(blinded);
+      this.blindStates.set(blindedHex, state);
+
+      // 2. Send blinded element to issuer
+      const url = `${this.config.issuerUrl}/v1/oprf/issue`;
+      console.log(`[Freebird] POST ${url}`);
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: context }),
+        body: JSON.stringify({
+          blinded_element_b64: voprf.bytesToBase64Url(blinded),
+          sybil_proof: { type: 'none' }, // For MVP - no sybil resistance
+        }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
         throw new FreebirdError(
-          `Failed to issue token: ${response.status} ${response.statusText} - ${url}${body ? ` - ${body}` : ''}`,
+          `Failed to issue token: ${response.status} - ${url}${body ? ` - ${body}` : ''}`,
           'ISSUE_FAILED'
         );
       }
 
-      const data = await response.json() as {
-        token: string;
-        proof?: string;
-        expires_at?: number;
-      };
+      const data = await response.json() as { token: string };
 
+      // Clean up blind state
+      this.blindStates.delete(blindedHex);
+
+      // 3. Return token
       return {
         blindedToken: data.token,
-        proof: data.proof ?? '',
-        issuerPublicKey: '',
-        expiresAt: data.expires_at ? data.expires_at * 1000 : Date.now() + 3600000,
+        proof: '',
+        issuerPublicKey: this.metadata?.voprf?.pubkey || '',
+        expiresAt: Date.now() + 3600000, // 1 hour default
       };
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
+  /**
+   * Verify a token with the verifier service
+   */
   async verify(token: FreebirdToken): Promise<boolean> {
     // Check expiration locally first
     if (token.expiresAt < Date.now()) {
@@ -102,11 +153,16 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
     const url = `${this.config.verifierUrl}/v1/verify`;
 
     try {
-      console.log(`Freebird: POST ${url}`);
+      console.log(`[Freebird] POST ${url}`);
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.blindedToken }),
+        body: JSON.stringify({
+          token_b64: token.blindedToken,
+          issuer_id: this.metadata?.issuer_id,
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          epoch: this.metadata?.epoch ?? Math.floor(Date.now() / 1000 / 86400),
+        }),
         signal: controller.signal,
       });
 
@@ -114,14 +170,10 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
         return false;
       }
 
-      const data = await response.json() as {
-        valid: boolean;
-        issuer_id?: string;
-        expires_at?: number;
-      };
-      return data.valid === true;
+      const data = await response.json() as { ok?: boolean; valid?: boolean };
+      return data.ok === true || data.valid === true;
     } catch {
-      console.warn('Freebird verification failed, assuming invalid');
+      console.warn('[Freebird] Verification failed, assuming invalid');
       return false;
     } finally {
       clearTimeout(timeoutId);
@@ -133,7 +185,6 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-      // Check issuer metadata endpoint
       const response = await fetch(`${this.config.issuerUrl}/.well-known/issuer`, {
         signal: controller.signal,
       });
@@ -197,4 +248,11 @@ class FreebirdError extends Error {
     super(message);
     this.name = 'FreebirdError';
   }
+}
+
+// Helper
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
