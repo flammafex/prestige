@@ -8,13 +8,6 @@ _A mission of [The Carpocratian Church of Commonality and Equality](https://carp
 <div><img src="mission.png" width=256 height=200></div>
 </div>
 
-## Overview
-
-Prestige is the third application in the SophiaDOS stack:
-- **Scarcity** handles `transfer()` — conservation of value
-- **Clout** handles `post()` — propagation of signal
-- **Prestige** handles `cast()` — aggregation of will
-
 ## Features
 
 - **Ballot Secrecy**: No one learns how anyone voted (Freebird unlinkability)
@@ -334,11 +327,3 @@ npm test -- --coverage
 ## License
 
 Apache-2.0
-
-## Related Projects
-
-- [Scarcity](https://github.com/flammafex/scarcity) - Token transfers
-- [Clout](https://github.com/flammafex/clout) - Social reputation
-- [Freebird](https://github.com/flammafex/freebird) - VOPRF tokens
-- [Witness](https://github.com/flammafex/witness) - BFT timestamps
-- [HyperToken](https://github.com/flammafex/hypertoken) - P2P sync
