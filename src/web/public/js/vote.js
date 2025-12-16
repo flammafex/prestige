@@ -173,10 +173,9 @@ async function handleVoteSubmit(e) {
       commitment,
     });
 
-    // Show voted section
-    const voteData = await identity.getVoteData(ballotId);
+    // Show "just voted" section (not "already voted")
     document.getElementById('voting-section').classList.add('hidden');
-    showVotedSection(voteData);
+    showJustVotedSection();
 
     // Update vote count
     const status = await api.getBallotStatus(ballotId);
@@ -190,7 +189,15 @@ async function handleVoteSubmit(e) {
 }
 
 /**
- * Show voted confirmation section
+ * Show "just voted" section (immediately after casting vote)
+ */
+function showJustVotedSection() {
+  const section = document.getElementById('just-voted-section');
+  section.classList.remove('hidden');
+}
+
+/**
+ * Show "already voted" section (on revisit)
  */
 function showVotedSection(voteData) {
   const section = document.getElementById('voted-section');
