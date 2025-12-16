@@ -5,7 +5,7 @@
  */
 
 import type { PrestigeStore } from '../types.js';
-import type { FreebirdAdapter } from '../adapters/freebird.js';
+import { HttpFreebirdAdapter, type FreebirdAdapter } from '../adapters/freebird.js';
 import type { BallotGate, VoterGate, GateConfig } from './types.js';
 
 // Ballot Gates
@@ -34,6 +34,8 @@ export interface GateFactoryOptions {
   config: GateConfig;
   store: PrestigeStore;
   freebird: FreebirdAdapter;
+  /** Shared Freebird verifier URL (for creating gate-specific adapters) */
+  freebirdVerifierUrl: string;
   instancePublicKey: string;
   voterGate?: VoterGate; // Required for petition ballot gate
 }
@@ -66,11 +68,19 @@ export function createBallotGate(options: GateFactoryOptions): BallotGate {
         config.ballotGateTrustHops ?? 2
       );
 
-    case 'freebird':
+    case 'freebird': {
       if (!config.ballotGateFreebirdIssuer) {
         throw new Error('BALLOT_GATE_FREEBIRD_ISSUER is required for freebird gate');
       }
-      return new FreebirdBallotGate(freebird, config.ballotGateFreebirdIssuer);
+      // Use gate-specific issuer URL if provided, otherwise use default adapter
+      const ballotFreebirdAdapter = config.ballotGateFreebirdIssuerUrl
+        ? new HttpFreebirdAdapter({
+            issuerUrl: config.ballotGateFreebirdIssuerUrl,
+            verifierUrl: options.freebirdVerifierUrl,
+          })
+        : freebird;
+      return new FreebirdBallotGate(ballotFreebirdAdapter, config.ballotGateFreebirdIssuer);
+    }
 
     case 'petition': {
       // Petition gate needs a voter gate for signature validation
@@ -116,8 +126,16 @@ export function createVoterGate(options: GateFactoryOptions): VoterGate {
     case 'open':
       return new OpenVoterGate();
 
-    case 'freebird':
-      return new FreebirdVoterGate(freebird);
+    case 'freebird': {
+      // Use gate-specific issuer URL if provided, otherwise use default adapter
+      const voterFreebirdAdapter = config.voterGateFreebirdIssuerUrl
+        ? new HttpFreebirdAdapter({
+            issuerUrl: config.voterGateFreebirdIssuerUrl,
+            verifierUrl: options.freebirdVerifierUrl,
+          })
+        : freebird;
+      return new FreebirdVoterGate(voterFreebirdAdapter);
+    }
 
     case 'clout':
       if (!config.voterGateCloutUrl) {
