@@ -46,7 +46,7 @@ export class HttpWitnessAdapter implements WitnessAdapter {
   async attest(hash: Hash, timestamp: number): Promise<WitnessAttestation> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-    const url = `${this.config.gatewayUrl}/attest`;
+    const url = `${this.config.gatewayUrl}/v1/timestamp`;
 
     try {
       console.log(`Witness: POST ${url}`);
@@ -88,7 +88,7 @@ export class HttpWitnessAdapter implements WitnessAdapter {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(`${this.config.gatewayUrl}/verify`, {
+      const response = await fetch(`${this.config.gatewayUrl}/v1/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(attestation),
