@@ -341,6 +341,79 @@
         </style>
       </div>
 
+      <!-- Audit Export -->
+      <div class="card hidden" id="export-card">
+        <div class="card-header">
+          <h3 class="card-title">📊 Audit Export</h3>
+          <p class="card-subtitle">Download ballot data for third-party verification</p>
+        </div>
+
+        <div class="export-buttons">
+          <a id="export-json-btn" href="#" class="btn btn-secondary export-btn" download>
+            <span class="export-icon">{ }</span>
+            <span class="export-label">
+              <span class="export-format">JSON</span>
+              <span class="export-desc">Full audit data</span>
+            </span>
+          </a>
+          <a id="export-csv-btn" href="#" class="btn btn-secondary export-btn" download>
+            <span class="export-icon">📋</span>
+            <span class="export-label">
+              <span class="export-format">CSV</span>
+              <span class="export-desc">Spreadsheet format</span>
+            </span>
+          </a>
+        </div>
+
+        <p class="export-info">
+          Exported data includes all votes, reveals, attestations, and cryptographic proofs for independent verification.
+        </p>
+
+        <style>
+          .export-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+          }
+          .export-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            text-decoration: none;
+          }
+          .export-icon {
+            font-size: 1.5rem;
+            width: 2.5rem;
+            text-align: center;
+          }
+          .export-label {
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+          }
+          .export-format {
+            font-weight: 600;
+            font-size: 1rem;
+          }
+          .export-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+          }
+          .export-info {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin: 0;
+          }
+          @media (max-width: 480px) {
+            .export-buttons {
+              flex-direction: column;
+            }
+          }
+        </style>
+      </div>
+
       <!-- Actions -->
       <div class="card hidden" id="actions-card">
         <div class="btn-group" style="flex-direction: column; gap: 0.5rem;">
@@ -374,6 +447,7 @@
       const verificationCard = document.getElementById('verification-card');
       const attestationCard = document.getElementById('attestation-card');
       const voteAttestationsCard = document.getElementById('vote-attestations-card');
+      const exportCard = document.getElementById('export-card');
       const actionsCard = document.getElementById('actions-card');
 
       try {
@@ -410,6 +484,11 @@
         // Show cards
         resultsCard.classList.remove('hidden');
         actionsCard.classList.remove('hidden');
+
+        // Set up export buttons
+        document.getElementById('export-json-btn').href = api.getExportJsonUrl(ballotId);
+        document.getElementById('export-csv-btn').href = api.getExportCsvUrl(ballotId);
+        exportCard.classList.remove('hidden');
 
         // Get verification report
         try {

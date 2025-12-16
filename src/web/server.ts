@@ -585,6 +585,220 @@ app.get('/api/results/:ballotId/verify', async (req: Request, res: Response) => 
   }
 });
 
+// ============= Audit Export Endpoints =============
+
+/**
+ * GET /api/results/:ballotId/export/json - Export full audit data as JSON
+ * Provides complete ballot, votes, reveals, and attestation data for third-party auditors
+ */
+app.get('/api/results/:ballotId/export/json', async (req: Request, res: Response) => {
+  try {
+    const ballotId = req.params.ballotId;
+
+    // Get all relevant data
+    const [ballot, votes, reveals, result, report] = await Promise.all([
+      prestige.getBallot(ballotId),
+      prestige.getVotes(ballotId),
+      prestige.getReveals(ballotId),
+      prestige.getResults(ballotId).catch(() => null),
+      prestige.getVerificationReport(ballotId),
+    ]);
+
+    if (!ballot) {
+      res.status(404).json({ error: 'Ballot not found', code: 'BALLOT_NOT_FOUND' });
+      return;
+    }
+
+    const exportData = {
+      exportVersion: '1.0',
+      exportedAt: new Date().toISOString(),
+      ballot: {
+        id: ballot.id,
+        question: ballot.question,
+        choices: ballot.choices,
+        created: ballot.created,
+        deadline: ballot.deadline,
+        revealDeadline: ballot.revealDeadline,
+        status: ballot.status,
+        voteType: ballot.voteType,
+        attestation: ballot.attestation,
+      },
+      votes: votes.map(v => ({
+        nullifier: v.nullifier,
+        commitment: v.commitment,
+        timestamp: v.timestamp,
+        attestation: v.attestation,
+      })),
+      reveals: reveals.map(r => ({
+        nullifier: r.nullifier,
+        choice: r.choice,
+        salt: r.salt,
+        voteData: r.voteData,
+        timestamp: r.timestamp,
+      })),
+      result: result ? {
+        tally: result.tally,
+        totalVotes: result.totalVotes,
+        totalReveals: result.totalReveals,
+        validReveals: result.validReveals,
+        finalized: result.finalized,
+        voteType: result.voteType,
+        rankedChoiceRounds: result.rankedChoiceRounds,
+        averageScores: result.averageScores,
+        attestation: result.attestation,
+      } : null,
+      verification: {
+        allVotesAttested: report.integrity.allVotesAttested,
+        allRevealsVerified: report.integrity.allRevealsVerified,
+        resultAttested: report.integrity.resultAttested,
+        validReveals: report.reveals.valid,
+        invalidReveals: report.reveals.invalid,
+        pendingReveals: report.reveals.pending,
+      },
+    };
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="ballot-${ballotId}-audit.json"`);
+    res.json(exportData);
+  } catch (error: any) {
+    console.error('Error exporting audit data:', error);
+    res.status(error.statusCode ?? 500).json({
+      error: error.message,
+      code: error.code,
+    });
+  }
+});
+
+/**
+ * GET /api/results/:ballotId/export/csv - Export audit data as CSV
+ * Provides vote-level data in CSV format for spreadsheet analysis
+ */
+app.get('/api/results/:ballotId/export/csv', async (req: Request, res: Response) => {
+  try {
+    const ballotId = req.params.ballotId;
+
+    // Get all relevant data
+    const [ballot, votes, reveals, report] = await Promise.all([
+      prestige.getBallot(ballotId),
+      prestige.getVotes(ballotId),
+      prestige.getReveals(ballotId),
+      prestige.getVerificationReport(ballotId),
+    ]);
+
+    if (!ballot) {
+      res.status(404).json({ error: 'Ballot not found', code: 'BALLOT_NOT_FOUND' });
+      return;
+    }
+
+    // Create reveal lookup by nullifier
+    const revealMap = new Map(reveals.map(r => [r.nullifier, r]));
+    const validNullifiers = new Set(report.reveals.validDetails.map(v => v.nullifier));
+
+    // Build CSV rows
+    const rows: string[][] = [];
+
+    // Header row
+    rows.push([
+      'vote_number',
+      'nullifier',
+      'commitment',
+      'vote_timestamp',
+      'vote_attested',
+      'revealed',
+      'choice',
+      'vote_data_type',
+      'vote_data',
+      'reveal_valid',
+      'witness_ids',
+    ]);
+
+    // Data rows
+    votes.forEach((vote, index) => {
+      const reveal = revealMap.get(vote.nullifier);
+      const isValid = validNullifiers.has(vote.nullifier);
+      const witnessIds = vote.attestation?.witnessIds?.join('; ') ?? '';
+
+      let voteDataType = '';
+      let voteDataStr = '';
+      if (reveal?.voteData) {
+        voteDataType = reveal.voteData.type;
+        switch (reveal.voteData.type) {
+          case 'single':
+            voteDataStr = reveal.voteData.choice;
+            break;
+          case 'approval':
+            voteDataStr = (reveal.voteData as any).choices?.join('; ') ?? '';
+            break;
+          case 'ranked':
+            voteDataStr = (reveal.voteData as any).rankings?.join(' > ') ?? '';
+            break;
+          case 'score':
+            voteDataStr = Object.entries((reveal.voteData as any).scores ?? {})
+              .map(([k, v]) => `${k}:${v}`)
+              .join('; ');
+            break;
+        }
+      }
+
+      rows.push([
+        String(index + 1),
+        vote.nullifier,
+        vote.commitment,
+        new Date(vote.timestamp).toISOString(),
+        vote.attestation ? 'yes' : 'no',
+        reveal ? 'yes' : 'no',
+        reveal?.choice ?? '',
+        voteDataType,
+        voteDataStr,
+        reveal ? (isValid ? 'yes' : 'no') : '',
+        witnessIds,
+      ]);
+    });
+
+    // Convert to CSV string
+    const csvContent = rows.map(row =>
+      row.map(cell => {
+        // Escape quotes and wrap in quotes if contains comma, quote, or newline
+        if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+          return `"${cell.replace(/"/g, '""')}"`;
+        }
+        return cell;
+      }).join(',')
+    ).join('\n');
+
+    // Add summary section
+    const summary = [
+      '',
+      '# Ballot Summary',
+      `# Question: ${ballot.question.replace(/,/g, ';')}`,
+      `# Choices: ${ballot.choices.join('; ')}`,
+      `# Created: ${new Date(ballot.created).toISOString()}`,
+      `# Voting Deadline: ${new Date(ballot.deadline).toISOString()}`,
+      `# Reveal Deadline: ${new Date(ballot.revealDeadline).toISOString()}`,
+      `# Status: ${ballot.status}`,
+      `# Total Votes: ${votes.length}`,
+      `# Total Reveals: ${reveals.length}`,
+      `# Valid Reveals: ${report.reveals.valid}`,
+      `# All Votes Attested: ${report.integrity.allVotesAttested ? 'yes' : 'no'}`,
+      `# All Reveals Verified: ${report.integrity.allRevealsVerified ? 'yes' : 'no'}`,
+    ].join('\n');
+
+    const fullCsv = csvContent + '\n' + summary;
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="ballot-${ballotId}-audit.csv"`);
+    res.send(fullCsv);
+  } catch (error: any) {
+    console.error('Error exporting CSV:', error);
+    res.status(error.statusCode ?? 500).json({
+      error: error.message,
+      code: error.code,
+    });
+  }
+});
+
 // ============= Client-Side Crypto Helpers =============
 
 /**

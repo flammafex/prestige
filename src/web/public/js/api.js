@@ -114,6 +114,16 @@ const api = {
     return this.request('GET', `/api/results/${ballotId}/verify`);
   },
 
+  // ============= Audit Export Operations =============
+
+  getExportJsonUrl(ballotId) {
+    return `${this.baseUrl}/api/results/${ballotId}/export/json`;
+  },
+
+  getExportCsvUrl(ballotId) {
+    return `${this.baseUrl}/api/results/${ballotId}/export/csv`;
+  },
+
   // ============= Crypto Helpers (for development) =============
 
   async generateSalt() {
