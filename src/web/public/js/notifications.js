@@ -1,6 +1,9 @@
 /**
- * Push Notifications for Prestige
- * Handles notification permissions, subscriptions, and local reminders
+ * Local Notifications for Prestige
+ * Handles notification permissions and local reminders
+ *
+ * Note: Uses local notifications only (no server-side push) for privacy.
+ * Reminders are stored in localStorage and checked when the app is open.
  */
 
 // Notification types
@@ -14,11 +17,6 @@ const NOTIFICATION_TYPES = {
 // Check if notifications are supported
 function notificationsSupported() {
   return 'Notification' in window && 'serviceWorker' in navigator;
-}
-
-// Check if push is supported
-function pushSupported() {
-  return 'PushManager' in window;
 }
 
 // Get current notification permission
@@ -233,120 +231,6 @@ function truncate(text, maxLength) {
   return text.slice(0, maxLength - 3) + '...';
 }
 
-// ============= Push Subscription =============
-
-// Get VAPID public key from server
-async function getVapidPublicKey() {
-  try {
-    const response = await fetch('/api/push/vapid-public-key');
-    if (response.ok) {
-      const data = await response.json();
-      return data.publicKey;
-    }
-  } catch (e) {
-    console.log('[Notifications] VAPID key not available');
-  }
-  return null;
-}
-
-// Subscribe to push notifications
-async function subscribeToPush() {
-  if (!pushSupported()) {
-    console.log('[Notifications] Push not supported');
-    return null;
-  }
-
-  const permission = await requestPermission();
-  if (permission !== 'granted') {
-    return null;
-  }
-
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const vapidPublicKey = await getVapidPublicKey();
-
-    if (!vapidPublicKey) {
-      console.log('[Notifications] Push notifications not configured on server');
-      return null;
-    }
-
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-    });
-
-    // Send subscription to server
-    await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(subscription),
-    });
-
-    console.log('[Notifications] Push subscription created');
-    return subscription;
-  } catch (e) {
-    console.error('[Notifications] Push subscription failed:', e);
-    return null;
-  }
-}
-
-// Unsubscribe from push notifications
-async function unsubscribeFromPush() {
-  if (!pushSupported()) return false;
-
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-
-    if (subscription) {
-      await subscription.unsubscribe();
-
-      // Notify server
-      await fetch('/api/push/unsubscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: subscription.endpoint }),
-      });
-
-      console.log('[Notifications] Push subscription removed');
-      return true;
-    }
-  } catch (e) {
-    console.error('[Notifications] Unsubscribe failed:', e);
-  }
-
-  return false;
-}
-
-// Get current push subscription
-async function getPushSubscription() {
-  if (!pushSupported()) return null;
-
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    return await registration.pushManager.getSubscription();
-  } catch (e) {
-    return null;
-  }
-}
-
-// Convert base64 to Uint8Array for VAPID
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding)
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
-
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-
-  return outputArray;
-}
-
 // ============= Initialization =============
 
 // Start the reminder checker
@@ -381,7 +265,7 @@ async function initNotifications() {
 
   return {
     permission: getPermission(),
-    pushSupported: pushSupported(),
+    supported: notificationsSupported(),
   };
 }
 
@@ -390,7 +274,6 @@ if (typeof window !== 'undefined') {
   window.notifications = {
     // Permission
     supported: notificationsSupported,
-    pushSupported,
     getPermission,
     requestPermission,
 
@@ -403,11 +286,6 @@ if (typeof window !== 'undefined') {
     cancelReminder,
     getReminders,
     checkReminders,
-
-    // Push
-    subscribeToPush,
-    unsubscribeFromPush,
-    getPushSubscription,
 
     // Init
     init: initNotifications,

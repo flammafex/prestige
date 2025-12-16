@@ -181,14 +181,20 @@ Prestige works as a Progressive Web App (PWA):
 
 - **Install on any device**: Add to home screen on mobile or desktop
 - **Offline support**: Queue votes when offline, sync when connected
-- **Push notifications**: Get notified when ballots open, close, or finalize
+- **Local notifications**: Get reminded when ballots are ending or reveals are due (requires permission)
 - **Fast loading**: Service worker caching for instant access
 
 ### Installing
 
-- **iOS**: Safari → Share → Add to Home Screen
+- **iOS**: Safari → Share → Add to Home Screen (iOS 16.4+ required for notifications)
 - **Android**: Chrome → Menu → Add to Home Screen
 - **Desktop**: Chrome/Edge → Install button in address bar
+
+### Notifications
+
+Local notifications require user permission. On iOS, the PWA must be installed to the home screen before notifications can be enabled. The app schedules reminders for:
+- Voting deadlines (1 hour before)
+- Reveal deadlines (30 minutes before)
 
 ## Audit & Verification
 

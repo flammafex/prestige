@@ -116,37 +116,7 @@ self.addEventListener('sync', (event) => {
   }
 });
 
-// Push notification handler
-self.addEventListener('push', (event) => {
-  console.log('[SW] Push received');
-
-  let data = { title: 'Prestige', body: 'New update available' };
-
-  if (event.data) {
-    try {
-      data = event.data.json();
-    } catch (e) {
-      data.body = event.data.text();
-    }
-  }
-
-  const options = {
-    body: data.body,
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
-    vibrate: [100, 50, 100],
-    data: data.data || {},
-    actions: data.actions || [],
-    tag: data.tag || 'prestige-notification',
-    renotify: true,
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title, options)
-  );
-});
-
-// Notification click handler
+// Notification click handler (handles clicks on local notifications)
 self.addEventListener('notificationclick', (event) => {
   console.log('[SW] Notification clicked:', event.notification.tag);
 
