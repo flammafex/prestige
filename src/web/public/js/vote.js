@@ -54,17 +54,26 @@ async function loadBallot() {
     updateTimer(status);
     timerInterval = setInterval(() => updateTimer(status), 1000);
 
+    // Check if we just voted in this session (survives page reload)
+    const justVoted = sessionStorage.getItem(`justVoted-${ballotId}`);
+
     // Show appropriate section based on status
     if (status.status === 'petition') {
       // Ballot is waiting for signatures
       await loadPetitionStatus(status);
     } else if (status.status === 'voting') {
       if (hasVotedLocal) {
-        showVotedSection(voteData);
+        if (justVoted) {
+          showJustVotedSection();
+        } else {
+          showVotedSection(voteData);
+        }
       } else {
         showVotingSection();
       }
     } else if (status.status === 'revealing') {
+      // Clear the "just voted" flag when entering reveal phase
+      sessionStorage.removeItem(`justVoted-${ballotId}`);
       await showRevealSection(hasVotedLocal, voteData);
     } else {
       // Finalized - show results link
@@ -172,6 +181,9 @@ async function handleVoteSubmit(e) {
       nullifier,
       commitment,
     });
+
+    // Mark as just voted (survives page reload within this session)
+    sessionStorage.setItem(`justVoted-${ballotId}`, 'true');
 
     // Show "just voted" section (not "already voted")
     document.getElementById('voting-section').classList.add('hidden');
