@@ -626,7 +626,7 @@ app.get('/api/results/:ballotId/export/json', async (req: Request, res: Response
       votes: votes.map(v => ({
         nullifier: v.nullifier,
         commitment: v.commitment,
-        timestamp: v.timestamp,
+        timestamp: v.attestation?.timestamp,
         attestation: v.attestation,
       })),
       reveals: reveals.map(r => ({
@@ -634,7 +634,6 @@ app.get('/api/results/:ballotId/export/json', async (req: Request, res: Response
         choice: r.choice,
         salt: r.salt,
         voteData: r.voteData,
-        timestamp: r.timestamp,
       })),
       result: result ? {
         tally: result.tally,
@@ -745,7 +744,7 @@ app.get('/api/results/:ballotId/export/csv', async (req: Request, res: Response)
         String(index + 1),
         vote.nullifier,
         vote.commitment,
-        new Date(vote.timestamp).toISOString(),
+        vote.attestation?.timestamp ? new Date(vote.attestation.timestamp).toISOString() : '',
         vote.attestation ? 'yes' : 'no',
         reveal ? 'yes' : 'no',
         reveal?.choice ?? '',
