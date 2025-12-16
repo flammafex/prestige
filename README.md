@@ -5,7 +5,7 @@
 > "Doodle poll, but you can't stuff the ballot and no one knows how you voted."
 
 Secret ballot. Public proof. That's the whole product.
-
+</div>
 ## Overview
 
 Prestige is the third application in the SophiaDOS stack:
