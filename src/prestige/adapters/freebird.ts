@@ -37,9 +37,9 @@ export interface FreebirdAdapter {
 /**
  * HTTP-based Freebird adapter for production use
  *
- * Note: Token issuance requires an invitation code from Freebird.
- * For MVP, use open voter gate. For production, users should
- * obtain Freebird tokens externally and present them to vote.
+ * Uses VOPRF (Verifiable Oblivious PRF) protocol:
+ * - POST /v1/oprf/issue - issue tokens
+ * - POST /v1/verify - verify tokens
  */
 export class HttpFreebirdAdapter implements FreebirdAdapter {
   private timeout: number;
@@ -49,47 +49,42 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
   }
 
   /**
-   * Issue a token using an invitation code
-   * In the real flow, the invitation_code would come from the user
-   * For now, this is a placeholder - use open voter gate for MVP
+   * Issue a token via VOPRF
+   * The context is used as input to the VOPRF
    */
   async issue(context: string): Promise<FreebirdToken> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const url = `${this.config.issuerUrl}/v1/oprf/issue`;
 
     try {
-      // Real Freebird API requires invitation_code
-      // This is a design mismatch - for MVP, use open voter gate
-      const response = await fetch(`${this.config.issuerUrl}/token`, {
+      console.log(`Freebird: POST ${url}`);
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // invitation_code would need to come from somewhere
-          // For now, this will fail unless you have a valid code
-          invitation_code: context,
-          user_id: `prestige-voter-${Date.now()}`,
-        }),
+        body: JSON.stringify({ input: context }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
         throw new FreebirdError(
-          `Failed to issue token: ${response.status} ${response.statusText}${body ? ` - ${body}` : ''}`,
+          `Failed to issue token: ${response.status} ${response.statusText} - ${url}${body ? ` - ${body}` : ''}`,
           'ISSUE_FAILED'
         );
       }
 
       const data = await response.json() as {
         token: string;
-        expires_at: number;
+        proof?: string;
+        expires_at?: number;
       };
 
       return {
         blindedToken: data.token,
-        proof: '',
+        proof: data.proof ?? '',
         issuerPublicKey: '',
-        expiresAt: data.expires_at * 1000, // Convert to ms if needed
+        expiresAt: data.expires_at ? data.expires_at * 1000 : Date.now() + 3600000,
       };
     } finally {
       clearTimeout(timeoutId);
@@ -104,9 +99,11 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const url = `${this.config.verifierUrl}/v1/verify`;
 
     try {
-      const response = await fetch(`${this.config.verifierUrl}/verify`, {
+      console.log(`Freebird: POST ${url}`);
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: token.blindedToken }),
@@ -136,12 +133,11 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const [issuerHealth, verifierHealth] = await Promise.all([
-        fetch(`${this.config.issuerUrl}/health`, { signal: controller.signal }),
-        fetch(`${this.config.verifierUrl}/health`, { signal: controller.signal }),
-      ]);
-
-      return issuerHealth.ok && verifierHealth.ok;
+      // Check issuer metadata endpoint
+      const response = await fetch(`${this.config.issuerUrl}/.well-known/issuer`, {
+        signal: controller.signal,
+      });
+      return response.ok;
     } catch {
       return false;
     } finally {
