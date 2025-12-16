@@ -11,6 +11,7 @@ import {
   createPrestige,
   createTestPrestige,
   Crypto,
+  type Prestige,
 } from '../prestige/index.js';
 import type {
   CreateBallotRequest,
@@ -21,11 +22,33 @@ import type {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Initialize Prestige - use mocks for MVP/dev mode
-const useMocks = process.env.USE_MOCKS === 'true' || !process.env.WITNESS_URL;
-const prestige = useMocks ? createTestPrestige() : createPrestige();
-if (useMocks) {
+// Initialize Prestige
+// USE_MOCKS=true forces mock mode
+// WITNESS_URL enables real Witness adapter (other adapters can still be mocked)
+const useMocks = process.env.USE_MOCKS === 'true';
+const hasWitnessUrl = !!process.env.WITNESS_URL;
+
+let prestige: Prestige;
+if (useMocks || !hasWitnessUrl) {
+  // Full mock mode - use test config with open gates
+  prestige = createTestPrestige();
   console.log('Running in mock mode (no external services required)');
+} else {
+  // Production mode - use real adapters with env-configured gates
+  prestige = createPrestige({
+    // Allow overriding gates via env, default to 'open' for MVP
+    ballotGate: (process.env.BALLOT_GATE as any) ?? 'open',
+    voterGate: (process.env.VOTER_GATE as any) ?? 'open',
+    // Allow shorter durations for testing
+    minDurationMinutes: process.env.MIN_DURATION_MINUTES
+      ? parseInt(process.env.MIN_DURATION_MINUTES, 10)
+      : 1,
+  });
+  console.log('Running with real adapters:');
+  console.log(`  Witness: ${process.env.WITNESS_URL}`);
+  if (process.env.FREEBIRD_ISSUER_URL) {
+    console.log(`  Freebird Issuer: ${process.env.FREEBIRD_ISSUER_URL}`);
+  }
 }
 
 const app = express();
