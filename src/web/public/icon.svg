@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a24"/>
+      <stop offset="100%" style="stop-color:#0a0a0f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#818cf8"/>
+      <stop offset="100%" style="stop-color:#6366f1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- Ballot box shape -->
+  <rect x="128" y="180" width="256" height="220" rx="16" fill="none" stroke="url(#accent)" stroke-width="16"/>
+
+  <!-- Slot for ballot -->
+  <rect x="180" y="164" width="152" height="32" rx="8" fill="url(#accent)"/>
+
+  <!-- Ballot paper going in -->
+  <rect x="200" y="100" width="112" height="100" rx="8" fill="#e8e8ed"/>
+
+  <!-- Check mark on ballot -->
+  <path d="M230 140 L250 160 L282 120" fill="none" stroke="#6366f1" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Anonymous eye symbol (privacy) -->
+  <g transform="translate(256, 310)">
+    <ellipse cx="0" cy="0" rx="50" ry="30" fill="none" stroke="#e8e8ed" stroke-width="8"/>
+    <circle cx="0" cy="0" r="15" fill="#e8e8ed"/>
+    <line x1="-60" y1="-40" x2="60" y2="40" stroke="#e8e8ed" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>
