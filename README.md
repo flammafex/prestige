@@ -1,11 +1,13 @@
 [<div align=center><img src="prestige.webp">](https://carpocratian.org/en/church/)
 
-**Anonymous Verifiable Voting for SophiaDOS**
+**NOW YOU SEE IT. NOW YOU DON'T. NOW HERE ARE THE RESULTS.**
 
-> "Doodle poll, but you can't stuff the ballot and no one knows how you voted."
+[<div><br><img src="church.png" width=72 height=72>](https://carpocratian.org/en/church/)
 
-Secret ballot. Public proof. That's the whole product.
+_A mission of [The Carpocratian Church of Commonality and Equality](https://carpocratian.org/en/church/)_.</div>
+<div><img src="mission.png" width=256 height=200></div>
 </div>
+
 ## Overview
 
 Prestige is the third application in the SophiaDOS stack:
