@@ -11,6 +11,8 @@ import type {
   RevealVerification,
   PrestigeStore,
   SubmitRevealRequest,
+  VoteData,
+  VoteTypeConfig,
 } from './types.js';
 import { ErrorCodes } from './types.js';
 import type { BallotManager } from './ballot.js';
@@ -61,16 +63,25 @@ export class RevealManager {
       );
     }
 
-    // 5. Validate choice is one of the ballot options
-    if (!ballot.choices.includes(request.choice)) {
-      throw new RevealError(
-        `Invalid choice. Must be one of: ${ballot.choices.join(', ')}`,
-        ErrorCodes.INVALID_REVEAL
-      );
+    // 5. Determine vote type and validate accordingly
+    const voteType = ballot.voteType?.type ?? 'single';
+
+    // Get or construct vote data
+    const voteData: VoteData = request.voteData ?? { type: 'single', choice: request.choice };
+
+    // 6. Validate vote data against ballot configuration
+    this.validateVoteData(voteData, ballot);
+
+    // 7. Verify commitment matches
+    let computedCommitment: string;
+    if (voteType === 'single' && voteData.type === 'single') {
+      // Backwards compatible: use simple commitment for single choice
+      computedCommitment = Crypto.generateCommitment(request.choice, request.salt);
+    } else {
+      // Use extended vote commitment for other types
+      computedCommitment = Crypto.generateVoteCommitment(voteData, request.salt);
     }
 
-    // 6. Verify commitment matches: H(choice || salt) === commitment
-    const computedCommitment = Crypto.generateCommitment(request.choice, request.salt);
     if (!Crypto.constantTimeEqual(computedCommitment, originalVote.commitment)) {
       throw new RevealError(
         'Reveal does not match original commitment',
@@ -78,7 +89,7 @@ export class RevealManager {
       );
     }
 
-    // 7. Check for duplicate reveal
+    // 8. Check for duplicate reveal
     const existingReveal = await this.store.getRevealByNullifier(
       request.ballotId,
       request.nullifier
@@ -90,17 +101,114 @@ export class RevealManager {
       );
     }
 
-    // 8. Store the reveal
+    // 9. Store the reveal
     const reveal: Reveal = {
       ballotId: request.ballotId,
       nullifier: request.nullifier,
       choice: request.choice,
       salt: request.salt,
+      voteData: voteData.type !== 'single' ? voteData : undefined,
     };
 
     await this.store.saveReveal(reveal);
 
     return reveal;
+  }
+
+  /**
+   * Validate vote data against ballot configuration
+   */
+  private validateVoteData(voteData: VoteData, ballot: Ballot): void {
+    const voteType = ballot.voteType?.type ?? 'single';
+
+    if (voteData.type !== voteType) {
+      throw new RevealError(
+        `Vote type mismatch. Expected ${voteType}, got ${voteData.type}`,
+        ErrorCodes.INVALID_REVEAL
+      );
+    }
+
+    switch (voteData.type) {
+      case 'single':
+        if (!ballot.choices.includes(voteData.choice)) {
+          throw new RevealError(
+            `Invalid choice. Must be one of: ${ballot.choices.join(', ')}`,
+            ErrorCodes.INVALID_REVEAL
+          );
+        }
+        break;
+
+      case 'approval':
+        if (voteData.choices.length === 0) {
+          throw new RevealError('Approval voting requires at least one choice', ErrorCodes.INVALID_REVEAL);
+        }
+        for (const choice of voteData.choices) {
+          if (!ballot.choices.includes(choice)) {
+            throw new RevealError(
+              `Invalid choice "${choice}". Must be one of: ${ballot.choices.join(', ')}`,
+              ErrorCodes.INVALID_REVEAL
+            );
+          }
+        }
+        // Check for duplicates
+        if (new Set(voteData.choices).size !== voteData.choices.length) {
+          throw new RevealError('Duplicate choices not allowed in approval voting', ErrorCodes.INVALID_REVEAL);
+        }
+        break;
+
+      case 'ranked':
+        const minRankings = ballot.voteType?.minRankings ?? 1;
+        const maxRankings = ballot.voteType?.maxRankings ?? ballot.choices.length;
+
+        if (voteData.rankings.length < minRankings) {
+          throw new RevealError(
+            `Ranked choice requires at least ${minRankings} ranking(s)`,
+            ErrorCodes.INVALID_REVEAL
+          );
+        }
+        if (voteData.rankings.length > maxRankings) {
+          throw new RevealError(
+            `Ranked choice allows at most ${maxRankings} ranking(s)`,
+            ErrorCodes.INVALID_REVEAL
+          );
+        }
+        for (const choice of voteData.rankings) {
+          if (!ballot.choices.includes(choice)) {
+            throw new RevealError(
+              `Invalid choice "${choice}". Must be one of: ${ballot.choices.join(', ')}`,
+              ErrorCodes.INVALID_REVEAL
+            );
+          }
+        }
+        // Check for duplicates
+        if (new Set(voteData.rankings).size !== voteData.rankings.length) {
+          throw new RevealError('Duplicate rankings not allowed', ErrorCodes.INVALID_REVEAL);
+        }
+        break;
+
+      case 'score':
+        const minScore = ballot.voteType?.minScore ?? 0;
+        const maxScore = ballot.voteType?.maxScore ?? 10;
+
+        for (const [choice, score] of Object.entries(voteData.scores)) {
+          if (!ballot.choices.includes(choice)) {
+            throw new RevealError(
+              `Invalid choice "${choice}". Must be one of: ${ballot.choices.join(', ')}`,
+              ErrorCodes.INVALID_REVEAL
+            );
+          }
+          if (score < minScore || score > maxScore) {
+            throw new RevealError(
+              `Score for "${choice}" must be between ${minScore} and ${maxScore}`,
+              ErrorCodes.INVALID_REVEAL
+            );
+          }
+          if (!Number.isInteger(score)) {
+            throw new RevealError(`Scores must be integers`, ErrorCodes.INVALID_REVEAL);
+          }
+        }
+        break;
+    }
   }
 
   /**
@@ -125,16 +233,6 @@ export class RevealManager {
       };
     }
 
-    // Validate choice is one of the ballot options
-    if (!ballot.choices.includes(reveal.choice)) {
-      return {
-        nullifier: reveal.nullifier,
-        choice: reveal.choice,
-        valid: false,
-        reason: 'Choice is not a valid ballot option',
-      };
-    }
-
     // Find the original vote
     const votes = await this.store.getVotesByBallot(ballotId);
     const originalVote = votes.find(v => v.nullifier === reveal.nullifier);
@@ -147,8 +245,22 @@ export class RevealManager {
       };
     }
 
-    // Verify commitment: H(choice || salt) === commitment
-    const computedCommitment = Crypto.generateCommitment(reveal.choice, reveal.salt);
+    // Determine vote type and verify accordingly
+    const voteType = ballot.voteType?.type ?? 'single';
+
+    // Construct vote data for verification
+    const voteData: VoteData = reveal.voteData ?? { type: 'single', choice: reveal.choice };
+
+    // Verify commitment based on vote type
+    let computedCommitment: string;
+    if (voteType === 'single' && voteData.type === 'single') {
+      // Backwards compatible: use simple commitment for single choice
+      computedCommitment = Crypto.generateCommitment(reveal.choice, reveal.salt);
+    } else {
+      // Use extended vote commitment for other types
+      computedCommitment = Crypto.generateVoteCommitment(voteData, reveal.salt);
+    }
+
     const valid = Crypto.constantTimeEqual(computedCommitment, originalVote.commitment);
 
     return {

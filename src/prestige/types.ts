@@ -48,6 +48,20 @@ export interface EligibilityConfig {
 // 'petition' - for petition gate: ballot is visible but waiting for signatures to activate
 export type BallotStatus = 'petition' | 'open' | 'voting' | 'revealing' | 'finalized';
 
+// Voting method types
+export type VoteType = 'single' | 'approval' | 'ranked' | 'score';
+
+// Vote type configuration
+export interface VoteTypeConfig {
+  type: VoteType;
+  // For score voting: the range of scores allowed
+  minScore?: number;
+  maxScore?: number;
+  // For ranked choice: minimum/maximum rankings required
+  minRankings?: number;
+  maxRankings?: number;
+}
+
 // The ballot itself
 export interface Ballot {
   id: string;
@@ -60,23 +74,50 @@ export interface Ballot {
   attestation: WitnessAttestation;  // proves creation time
   creatorPublicKey: PublicKey;
   status: BallotStatus;
+  // Voting method - defaults to 'single' for backwards compatibility
+  voteType?: VoteTypeConfig;
 }
 
 // A vote commitment (hides choice until reveal)
 export interface Vote {
   ballotId: string;
   nullifier: Hash;            // H(voterSecret || ballotId) - prevents double-vote
-  commitment: Hash;           // H(choice || salt) - hides choice until reveal
+  commitment: Hash;           // H(voteData || salt) - hides choice(s) until reveal
   proof: FreebirdToken;       // proves eligibility without identity
   attestation: WitnessAttestation;
 }
+
+// Vote data structures for different voting methods
+export interface SingleVoteData {
+  type: 'single';
+  choice: string;
+}
+
+export interface ApprovalVoteData {
+  type: 'approval';
+  choices: string[];          // All approved choices
+}
+
+export interface RankedVoteData {
+  type: 'ranked';
+  rankings: string[];         // Ordered from most to least preferred
+}
+
+export interface ScoreVoteData {
+  type: 'score';
+  scores: Record<string, number>;  // Choice -> score mapping
+}
+
+export type VoteData = SingleVoteData | ApprovalVoteData | RankedVoteData | ScoreVoteData;
 
 // A vote reveal (proves the committed choice)
 export interface Reveal {
   ballotId: string;
   nullifier: Hash;            // links to original vote
-  choice: string;             // the actual choice
+  choice: string;             // the actual choice (for single/backwards compat)
   salt: string;               // random value used in commitment
+  // Extended vote data for advanced voting methods
+  voteData?: VoteData;
 }
 
 // Verification result for a reveal
@@ -87,15 +128,28 @@ export interface RevealVerification {
   reason?: string;
 }
 
+// Ranked choice round for instant-runoff voting
+export interface RankedChoiceRound {
+  round: number;
+  votes: Record<string, number>;
+  eliminated?: string;
+}
+
 // Final ballot result
 export interface Result {
   ballotId: string;
-  tally: Record<string, number>;
+  tally: Record<string, number>;    // Primary tally (votes or points)
   totalVotes: number;
   totalReveals: number;
   validReveals: number;
   attestation: WitnessAttestation;  // proves finalization time
   finalized: number;
+  // Extended results for different voting methods
+  voteType?: VoteType;
+  // For ranked choice: detailed round-by-round results
+  rankedChoiceRounds?: RankedChoiceRound[];
+  // For score voting: average scores
+  averageScores?: Record<string, number>;
 }
 
 // Gossip message types for P2P propagation
@@ -229,6 +283,8 @@ export interface CreateBallotRequest {
   durationMinutes?: number;
   revealWindowMinutes?: number;
   eligibility?: EligibilityConfig;
+  // Voting method configuration
+  voteType?: VoteTypeConfig;
 }
 
 export interface CreateBallotResponse {
@@ -246,8 +302,10 @@ export interface CastVoteRequest {
 export interface SubmitRevealRequest {
   ballotId: string;
   nullifier: Hash;
-  choice: string;
+  choice: string;             // For single choice (backwards compat)
   salt: string;
+  // Extended vote data for advanced voting methods
+  voteData?: VoteData;
 }
 
 export interface BallotStatusResponse {

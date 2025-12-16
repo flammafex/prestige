@@ -535,6 +535,229 @@ footer a:hover {
   color: #a855f7;
 }
 
+/* Vote Type Label */
+.vote-type-label {
+  font-size: 0.875rem;
+  color: var(--accent);
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+/* Approval Voting */
+.choice-item.approval-item input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--accent);
+}
+
+/* Ranked Choice Voting */
+.ranked-instructions {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+}
+
+.ranked-available {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.ranked-choice {
+  padding: 0.5rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ranked-choice:hover {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.ranked-choice.hidden {
+  display: none;
+}
+
+.ranked-selected-label {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.ranked-selected {
+  list-style: none;
+  counter-reset: none;
+  padding: 0;
+}
+
+.ranked-placeholder {
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ranked-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+}
+
+.rank-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.ranked-item .choice-text {
+  flex: 1;
+}
+
+.rank-controls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.rank-btn {
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: all 0.2s;
+}
+
+.rank-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rank-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.rank-btn.remove:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* Score Voting */
+.score-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.score-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.score-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 2rem;
+  text-align: right;
+}
+
+.score-slider {
+  width: 100%;
+  height: 8px;
+  -webkit-appearance: none;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  outline: none;
+}
+
+.score-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.score-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.score-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.score-range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Ranked Choice Results */
+.rounds-container {
+  margin-top: 1rem;
+}
+
+.round-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.round-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.round-title {
+  font-weight: 600;
+}
+
+.round-eliminated {
+  font-size: 0.75rem;
+  color: var(--error);
+}
+
 /* Responsive */
 @media (max-width: 480px) {
   .container {
@@ -547,5 +770,13 @@ footer a:hover {
 
   .btn-group {
     flex-direction: column;
+  }
+
+  .ranked-available {
+    flex-direction: column;
+  }
+
+  .ranked-choice {
+    text-align: center;
   }
 }

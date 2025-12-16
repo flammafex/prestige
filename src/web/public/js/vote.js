@@ -8,7 +8,10 @@ const pathParts = window.location.pathname.split('/');
 const ballotId = pathParts[pathParts.length - 1];
 
 let ballot = null;
-let selectedChoice = null;
+let selectedChoice = null;        // For single choice
+let selectedChoices = [];         // For approval voting
+let rankedChoices = [];           // For ranked choice voting
+let choiceScores = {};            // For score voting
 let timerInterval = null;
 
 /**
@@ -105,14 +108,35 @@ async function loadBallot() {
 function showVotingSection() {
   const section = document.getElementById('voting-section');
   const choicesList = document.getElementById('choices-list');
+  const voteType = ballot.voteType?.type ?? 'single';
 
-  // Render choices
-  choicesList.innerHTML = ballot.choices.map((choice, index) => `
-    <li class="choice-item" data-choice="${escapeHtml(choice)}" onclick="selectChoice(this)">
-      <input type="radio" name="choice" id="choice-${index}" value="${escapeHtml(choice)}">
-      <label for="choice-${index}" class="choice-text">${escapeHtml(choice)}</label>
-    </li>
-  `).join('');
+  // Show vote type indicator
+  const voteTypeLabel = document.getElementById('vote-type-label');
+  if (voteTypeLabel) {
+    const typeLabels = {
+      single: 'Single Choice',
+      approval: 'Approval Voting (select all you approve)',
+      ranked: 'Ranked Choice (drag to rank)',
+      score: 'Score Voting (rate each choice)'
+    };
+    voteTypeLabel.textContent = typeLabels[voteType] || 'Single Choice';
+    voteTypeLabel.classList.remove('hidden');
+  }
+
+  // Render choices based on vote type
+  switch (voteType) {
+    case 'approval':
+      renderApprovalChoices(choicesList);
+      break;
+    case 'ranked':
+      renderRankedChoices(choicesList);
+      break;
+    case 'score':
+      renderScoreChoices(choicesList);
+      break;
+    default:
+      renderSingleChoices(choicesList);
+  }
 
   section.classList.remove('hidden');
 
@@ -121,7 +145,91 @@ function showVotingSection() {
 }
 
 /**
- * Handle choice selection
+ * Render single choice (radio buttons)
+ */
+function renderSingleChoices(container) {
+  container.innerHTML = ballot.choices.map((choice, index) => `
+    <li class="choice-item" data-choice="${escapeHtml(choice)}" onclick="selectChoice(this)">
+      <input type="radio" name="choice" id="choice-${index}" value="${escapeHtml(choice)}">
+      <label for="choice-${index}" class="choice-text">${escapeHtml(choice)}</label>
+    </li>
+  `).join('');
+}
+
+/**
+ * Render approval voting (checkboxes)
+ */
+function renderApprovalChoices(container) {
+  selectedChoices = [];
+  container.innerHTML = ballot.choices.map((choice, index) => `
+    <li class="choice-item approval-item" data-choice="${escapeHtml(choice)}" onclick="toggleApproval(this)">
+      <input type="checkbox" name="approval" id="choice-${index}" value="${escapeHtml(choice)}">
+      <label for="choice-${index}" class="choice-text">${escapeHtml(choice)}</label>
+    </li>
+  `).join('');
+}
+
+/**
+ * Render ranked choice (draggable list)
+ */
+function renderRankedChoices(container) {
+  rankedChoices = [];
+  const minRankings = ballot.voteType?.minRankings ?? 1;
+  const maxRankings = ballot.voteType?.maxRankings ?? ballot.choices.length;
+
+  container.innerHTML = `
+    <div class="ranked-instructions">
+      <p>Click choices to add them to your ranking (${minRankings}-${maxRankings} required).</p>
+    </div>
+    <div class="ranked-available" id="ranked-available">
+      ${ballot.choices.map((choice, index) => `
+        <div class="ranked-choice available" data-choice="${escapeHtml(choice)}" onclick="addToRanking(this)">
+          <span class="choice-text">${escapeHtml(choice)}</span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="ranked-selected-label">Your Ranking:</div>
+    <ol class="ranked-selected" id="ranked-selected">
+      <li class="ranked-placeholder">Click choices above to rank them</li>
+    </ol>
+  `;
+}
+
+/**
+ * Render score voting (sliders)
+ */
+function renderScoreChoices(container) {
+  choiceScores = {};
+  const minScore = ballot.voteType?.minScore ?? 0;
+  const maxScore = ballot.voteType?.maxScore ?? 10;
+
+  // Initialize all scores to minimum
+  ballot.choices.forEach(choice => {
+    choiceScores[choice] = minScore;
+  });
+
+  container.innerHTML = ballot.choices.map((choice, index) => `
+    <li class="choice-item score-item" data-choice="${escapeHtml(choice)}">
+      <div class="score-header">
+        <label for="score-${index}" class="choice-text">${escapeHtml(choice)}</label>
+        <span class="score-value" id="score-value-${index}">${minScore}</span>
+      </div>
+      <input type="range" class="score-slider" id="score-${index}"
+        min="${minScore}" max="${maxScore}" value="${minScore}"
+        oninput="updateScore('${escapeHtml(choice)}', this.value, ${index})">
+      <div class="score-range">
+        <span>${minScore}</span>
+        <span>${maxScore}</span>
+      </div>
+    </li>
+  `).join('');
+
+  // Enable vote button immediately for score voting
+  document.getElementById('vote-btn').disabled = false;
+}
+
+/**
+ * Handle choice selection (single choice)
  */
 function selectChoice(element) {
   // Remove selection from all
@@ -140,13 +248,139 @@ function selectChoice(element) {
 }
 
 /**
+ * Toggle approval selection (approval voting)
+ */
+function toggleApproval(element) {
+  const choice = element.dataset.choice;
+  const checkbox = element.querySelector('input');
+
+  if (selectedChoices.includes(choice)) {
+    // Remove from selection
+    selectedChoices = selectedChoices.filter(c => c !== choice);
+    element.classList.remove('selected');
+    checkbox.checked = false;
+  } else {
+    // Add to selection
+    selectedChoices.push(choice);
+    element.classList.add('selected');
+    checkbox.checked = true;
+  }
+
+  // Enable vote button if at least one selected
+  document.getElementById('vote-btn').disabled = selectedChoices.length === 0;
+}
+
+/**
+ * Add choice to ranking (ranked choice voting)
+ */
+function addToRanking(element) {
+  const choice = element.dataset.choice;
+  const maxRankings = ballot.voteType?.maxRankings ?? ballot.choices.length;
+
+  // Check if already at max
+  if (rankedChoices.length >= maxRankings) {
+    return;
+  }
+
+  // Add to ranked list
+  rankedChoices.push(choice);
+
+  // Hide from available
+  element.classList.add('hidden');
+
+  // Update ranked display
+  updateRankedDisplay();
+
+  // Check if we can vote
+  validateRankedVote();
+}
+
+/**
+ * Remove choice from ranking
+ */
+function removeFromRanking(index) {
+  const choice = rankedChoices[index];
+  rankedChoices.splice(index, 1);
+
+  // Show in available again
+  const availableEl = document.querySelector(`#ranked-available [data-choice="${choice}"]`);
+  if (availableEl) {
+    availableEl.classList.remove('hidden');
+  }
+
+  // Update display
+  updateRankedDisplay();
+  validateRankedVote();
+}
+
+/**
+ * Move ranked choice up
+ */
+function moveRankUp(index) {
+  if (index === 0) return;
+  [rankedChoices[index - 1], rankedChoices[index]] = [rankedChoices[index], rankedChoices[index - 1]];
+  updateRankedDisplay();
+}
+
+/**
+ * Move ranked choice down
+ */
+function moveRankDown(index) {
+  if (index >= rankedChoices.length - 1) return;
+  [rankedChoices[index], rankedChoices[index + 1]] = [rankedChoices[index + 1], rankedChoices[index]];
+  updateRankedDisplay();
+}
+
+/**
+ * Update ranked choices display
+ */
+function updateRankedDisplay() {
+  const container = document.getElementById('ranked-selected');
+
+  if (rankedChoices.length === 0) {
+    container.innerHTML = '<li class="ranked-placeholder">Click choices above to rank them</li>';
+    return;
+  }
+
+  container.innerHTML = rankedChoices.map((choice, index) => `
+    <li class="ranked-item">
+      <span class="rank-number">${index + 1}</span>
+      <span class="choice-text">${escapeHtml(choice)}</span>
+      <div class="rank-controls">
+        <button type="button" class="rank-btn" onclick="moveRankUp(${index})" ${index === 0 ? 'disabled' : ''}>&#9650;</button>
+        <button type="button" class="rank-btn" onclick="moveRankDown(${index})" ${index >= rankedChoices.length - 1 ? 'disabled' : ''}>&#9660;</button>
+        <button type="button" class="rank-btn remove" onclick="removeFromRanking(${index})">&#10005;</button>
+      </div>
+    </li>
+  `).join('');
+}
+
+/**
+ * Validate ranked vote meets requirements
+ */
+function validateRankedVote() {
+  const minRankings = ballot.voteType?.minRankings ?? 1;
+  document.getElementById('vote-btn').disabled = rankedChoices.length < minRankings;
+}
+
+/**
+ * Update score for a choice (score voting)
+ */
+function updateScore(choice, value, index) {
+  choiceScores[choice] = parseInt(value, 10);
+  document.getElementById(`score-value-${index}`).textContent = value;
+}
+
+/**
  * Handle vote submission
  */
 async function handleVoteSubmit(e) {
   e.preventDefault();
 
-  if (!selectedChoice) {
-    alert('Please select a choice');
+  const voteType = ballot.voteType?.type ?? 'single';
+
+  // Validate based on vote type
+  if (!validateVoteSelection(voteType)) {
     return;
   }
 
@@ -158,9 +392,21 @@ async function handleVoteSubmit(e) {
     // Get voter secret
     const voterSecret = await identity.getVoterSecret(ballotId);
 
+    // Build vote data based on type
+    const voteData = buildVoteData(voteType);
+
     // Generate salt and commitment
     const salt = prestigeCrypto.generateSalt();
-    const commitment = await prestigeCrypto.generateCommitment(selectedChoice, salt);
+    let commitment;
+
+    if (voteType === 'single') {
+      // Backwards compatible simple commitment
+      commitment = await prestigeCrypto.generateCommitment(selectedChoice, salt);
+    } else {
+      // Extended vote commitment
+      commitment = await prestigeCrypto.generateVoteCommitment(voteData, salt);
+    }
+
     const nullifier = await prestigeCrypto.generateNullifier(voterSecret, ballotId);
 
     // Get eligibility token
@@ -176,10 +422,11 @@ async function handleVoteSubmit(e) {
 
     // Save vote data locally for reveal phase
     await identity.saveVoteData(ballotId, {
-      choice: selectedChoice,
+      choice: getPrimaryChoice(voteType),
       salt,
       nullifier,
       commitment,
+      voteData: voteType !== 'single' ? voteData : undefined,
     });
 
     // Mark as just voted (survives page reload within this session)
@@ -197,6 +444,85 @@ async function handleVoteSubmit(e) {
     alert('Error casting vote: ' + error.message);
     btn.disabled = false;
     btn.textContent = 'Cast Vote';
+  }
+}
+
+/**
+ * Validate vote selection based on type
+ */
+function validateVoteSelection(voteType) {
+  switch (voteType) {
+    case 'single':
+      if (!selectedChoice) {
+        alert('Please select a choice');
+        return false;
+      }
+      return true;
+
+    case 'approval':
+      if (selectedChoices.length === 0) {
+        alert('Please select at least one choice');
+        return false;
+      }
+      return true;
+
+    case 'ranked':
+      const minRankings = ballot.voteType?.minRankings ?? 1;
+      if (rankedChoices.length < minRankings) {
+        alert(`Please rank at least ${minRankings} choice(s)`);
+        return false;
+      }
+      return true;
+
+    case 'score':
+      // Score voting is always valid (all choices have default scores)
+      return true;
+
+    default:
+      return true;
+  }
+}
+
+/**
+ * Build vote data structure for the given type
+ */
+function buildVoteData(voteType) {
+  switch (voteType) {
+    case 'single':
+      return { type: 'single', choice: selectedChoice };
+
+    case 'approval':
+      return { type: 'approval', choices: [...selectedChoices] };
+
+    case 'ranked':
+      return { type: 'ranked', rankings: [...rankedChoices] };
+
+    case 'score':
+      return { type: 'score', scores: { ...choiceScores } };
+
+    default:
+      return { type: 'single', choice: selectedChoice };
+  }
+}
+
+/**
+ * Get primary choice for storage (for backwards compatibility)
+ */
+function getPrimaryChoice(voteType) {
+  switch (voteType) {
+    case 'single':
+      return selectedChoice;
+    case 'approval':
+      return selectedChoices[0] || '';
+    case 'ranked':
+      return rankedChoices[0] || '';
+    case 'score':
+      // Return the choice with highest score
+      const entries = Object.entries(choiceScores);
+      if (entries.length === 0) return '';
+      return entries.sort((a, b) => b[1] - a[1])[0][0];
+    default:
+      return selectedChoice;
   }
 }
 
@@ -256,19 +582,27 @@ async function handleRevealSubmit() {
   btn.textContent = 'Revealing...';
 
   try {
-    const voteData = await identity.getVoteData(ballotId);
+    const localVoteData = await identity.getVoteData(ballotId);
 
-    if (!voteData) {
+    if (!localVoteData) {
       throw new Error('No vote data found locally');
     }
 
-    // Submit reveal
-    await api.submitReveal({
+    // Build reveal request
+    const revealRequest = {
       ballotId,
-      nullifier: voteData.nullifier,
-      choice: voteData.choice,
-      salt: voteData.salt,
-    });
+      nullifier: localVoteData.nullifier,
+      choice: localVoteData.choice,
+      salt: localVoteData.salt,
+    };
+
+    // Include voteData for extended vote types
+    if (localVoteData.voteData) {
+      revealRequest.voteData = localVoteData.voteData;
+    }
+
+    // Submit reveal
+    await api.submitReveal(revealRequest);
 
     // Mark as revealed
     await identity.markRevealed(ballotId);

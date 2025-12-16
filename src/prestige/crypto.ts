@@ -7,7 +7,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { randomBytes } from '@noble/hashes/utils';
 import { ed25519 } from '@noble/curves/ed25519';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
-import type { KeyPair, PublicKey, PrivateKey, Signature, Hash } from './types.js';
+import type { KeyPair, PublicKey, PrivateKey, Signature, Hash, VoteData } from './types.js';
 
 export class Crypto {
   /**
@@ -100,6 +100,54 @@ export class Crypto {
    */
   static generateCommitment(choice: string, salt: string): Hash {
     return this.hash(choice, salt);
+  }
+
+  /**
+   * Generate a commitment for any vote data type
+   * Uses canonical JSON serialization for deterministic hashing
+   */
+  static generateVoteCommitment(voteData: VoteData, salt: string): Hash {
+    // Serialize vote data deterministically
+    const serialized = this.serializeVoteData(voteData);
+    return this.hash(serialized, salt);
+  }
+
+  /**
+   * Serialize vote data deterministically for commitment generation
+   */
+  static serializeVoteData(voteData: VoteData): string {
+    switch (voteData.type) {
+      case 'single':
+        // For backwards compatibility, single choice uses just the choice string
+        return voteData.choice;
+
+      case 'approval':
+        // Sort choices for deterministic ordering
+        return `approval:${[...voteData.choices].sort().join(',')}`;
+
+      case 'ranked':
+        // Rankings are order-dependent, don't sort
+        return `ranked:${voteData.rankings.join(',')}`;
+
+      case 'score':
+        // Sort by choice name for deterministic ordering
+        const sortedScores = Object.entries(voteData.scores)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([choice, score]) => `${choice}:${score}`)
+          .join(',');
+        return `score:${sortedScores}`;
+
+      default:
+        throw new Error(`Unknown vote type: ${(voteData as VoteData).type}`);
+    }
+  }
+
+  /**
+   * Verify a commitment matches the revealed vote data
+   */
+  static verifyVoteCommitment(commitment: Hash, voteData: VoteData, salt: string): boolean {
+    const computed = this.generateVoteCommitment(voteData, salt);
+    return this.constantTimeEqual(commitment, computed);
   }
 
   /**
