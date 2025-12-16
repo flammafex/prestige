@@ -3,6 +3,8 @@
  */
 
 import Database from 'better-sqlite3';
+import { mkdirSync, existsSync } from 'fs';
+import { dirname } from 'path';
 import type {
   Ballot,
   BallotStatus,
@@ -18,6 +20,11 @@ export class SQLiteStore implements PrestigeStore {
   private db: Database.Database;
 
   constructor(dbPath: string) {
+    // Ensure the directory exists
+    const dir = dirname(dbPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
