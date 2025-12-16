@@ -16,6 +16,38 @@ _A mission of [The Carpocratian Church of Commonality and Equality](https://carp
 - **Verifiability**: Anyone can verify the tally is correct (public reveals + commitments)
 - **Coercion Resistance**: Commit-reveal scheme prevents strategic voting
 - **Configurable Gates**: Pluggable mechanisms for ballot creation and voter eligibility
+- **Multiple Voting Methods**: Single choice, Approval, Ranked Choice (IRV), and Score voting
+- **Progressive Web App**: Install on any device, vote offline, receive notifications
+- **Enhanced Privacy Mode**: Timing attack protection, IP anonymization, Tor-friendly
+- **Audit Exports**: Download ballot data as JSON or CSV for third-party verification
+
+## Voting Methods
+
+Prestige supports multiple voting methods to suit different decision-making needs:
+
+| Method | Description | Best For |
+|--------|-------------|----------|
+| **Single Choice** | Traditional one-person-one-vote | Simple yes/no or binary decisions |
+| **Approval Voting** | Vote for all acceptable choices | Selecting from many similar options |
+| **Ranked Choice (IRV)** | Rank choices in preference order | Eliminating vote-splitting, finding consensus |
+| **Score Voting** | Rate each choice on a scale | Nuanced preference expression |
+
+### Ranked Choice Voting
+
+Uses Instant-Runoff Voting (IRV):
+1. Count first-choice votes
+2. If no majority, eliminate lowest candidate
+3. Redistribute eliminated candidate's votes to next preferences
+4. Repeat until majority winner emerges
+
+Results display round-by-round elimination for full transparency.
+
+### Score Voting
+
+Voters assign scores (e.g., 0-5) to each choice:
+- Total scores determine winner
+- Average scores shown for comparison
+- Allows nuanced preference expression
 
 ## Gate System
 
@@ -95,6 +127,90 @@ Voter requests eligibility token
 - **Freebird VOPRF**: Eligibility tokens are unlinkable - issuer can't connect token to verifier
 - **Nullifiers**: Prevent double-voting without revealing identity
 - **Witness Attestations**: Cryptographic timestamps prove when votes were cast
+- **Timing Obfuscation**: Random delays prevent timing correlation attacks
+- **IP Anonymization**: Headers stripped in privacy mode
+
+## Privacy & Security
+
+### Enhanced Privacy Mode
+
+Enable privacy mode for high-stakes anonymous voting:
+
+```bash
+PRIVACY_MODE=true
+PRIVACY_MIN_DELAY_MS=100    # Random delay range
+PRIVACY_MAX_DELAY_MS=2000
+DISABLE_LOGGING=false       # Set true for maximum privacy
+```
+
+Features:
+- **Timing obfuscation**: Random delays on sensitive endpoints prevent timing attacks
+- **IP anonymization**: Strips `X-Forwarded-For` and similar headers
+- **Security headers**: CSP, HSTS, X-Frame-Options, and more
+- **Privacy-aware rate limiting**: Uses request fingerprints instead of IPs
+
+### Tor Hidden Service Deployment
+
+Deploy Prestige as a Tor hidden service for maximum anonymity:
+
+1. Install Tor: `apt install tor`
+2. Configure `/etc/tor/torrc`:
+   ```
+   HiddenServiceDir /var/lib/tor/prestige/
+   HiddenServicePort 80 127.0.0.1:3000
+   ```
+3. Restart Tor and get your `.onion` address:
+   ```bash
+   systemctl restart tor
+   cat /var/lib/tor/prestige/hostname
+   ```
+4. Set `ONION_LOCATION` to advertise your onion address
+5. Enable `PRIVACY_MODE=true` and `DISABLE_LOGGING=true`
+
+### Privacy Tips for Voters
+
+The web UI includes privacy guidance:
+- Tor Browser usage recommendations
+- VPN recommendations (Mullvad, ProtonVPN, IVPN)
+- Device privacy best practices
+- Timing attack mitigation tips
+
+## Progressive Web App
+
+Prestige works as a Progressive Web App (PWA):
+
+- **Install on any device**: Add to home screen on mobile or desktop
+- **Offline support**: Queue votes when offline, sync when connected
+- **Push notifications**: Get notified when ballots open, close, or finalize
+- **Fast loading**: Service worker caching for instant access
+
+### Installing
+
+- **iOS**: Safari → Share → Add to Home Screen
+- **Android**: Chrome → Menu → Add to Home Screen
+- **Desktop**: Chrome/Edge → Install button in address bar
+
+## Audit & Verification
+
+### Witness Attestations
+
+All votes and results are timestamped by witness nodes:
+- 🙌 Witnessed by {domain} at {time}
+- Cryptographic signatures prove timestamp integrity
+- Multiple witnesses for Byzantine fault tolerance
+
+### Audit Exports
+
+Download complete ballot data for independent verification:
+
+- **JSON Export**: Full audit data including all votes, reveals, attestations, and cryptographic proofs
+- **CSV Export**: Spreadsheet-friendly format with vote-level data and summary statistics
+
+Exports include:
+- All vote commitments and nullifiers
+- All reveals with verification status
+- Witness attestations and signatures
+- Final tally computation data
 
 ## Quick Start
 
@@ -122,9 +238,21 @@ npm install
 # Build
 npm run build
 
-# Start development server
+# Start in mock mode (no external services required)
+USE_MOCKS=true npm run dev
+
+# Or start with real services
 npm run web
 ```
+
+### Mock Mode
+
+For testing without external services:
+```bash
+USE_MOCKS=true npm run dev
+```
+
+This uses mock adapters for Freebird, Witness, and HyperToken.
 
 ## Architecture
 
@@ -133,9 +261,13 @@ npm run web
 │                         Browser                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
 │  │  IndexedDB  │  │   Crypto    │  │   Vote UI   │          │
-│  │  (keypair)  │  │ (commit/    │  │             │          │
+│  │  (keypair)  │  │ (commit/    │  │   (PWA)     │          │
 │  │             │  │  nullifier) │  │             │          │
 │  └─────────────┘  └─────────────┘  └─────────────┘          │
+│  ┌─────────────┐  ┌─────────────┐                           │
+│  │   Service   │  │   Offline   │                           │
+│  │   Worker    │  │   Queue     │                           │
+│  └─────────────┘  └─────────────┘                           │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -146,8 +278,8 @@ npm run web
 │  │   Manager   │  │   Manager   │  │   Manager   │          │
 │  └─────────────┘  └─────────────┘  └─────────────┘          │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
-│  │   Tally     │  │   Gossip    │  │   Storage   │          │
-│  │   Manager   │  │  Protocol   │  │   (SQLite)  │          │
+│  │   Tally     │  │  Security   │  │   Storage   │          │
+│  │   Manager   │  │ Middleware  │  │   (SQLite)  │          │
 │  └─────────────┘  └─────────────┘  └─────────────┘          │
 └─────────────────────────────────────────────────────────────┘
         │                   │                   │
@@ -203,9 +335,11 @@ GET  /api/reveals/:ballotId/stats  # Get reveal statistics
 ### Results
 
 ```
-GET  /api/results/:ballotId        # Final tally with attestation
-GET  /api/results/:ballotId/live   # Live tally during reveal phase
-GET  /api/results/:ballotId/verify # Verification report
+GET  /api/results/:ballotId              # Final tally with attestation
+GET  /api/results/:ballotId/live         # Live tally during reveal phase
+GET  /api/results/:ballotId/verify       # Verification report
+GET  /api/results/:ballotId/export/json  # Download full audit data (JSON)
+GET  /api/results/:ballotId/export/csv   # Download audit data (CSV)
 ```
 
 ## CLI Usage
@@ -240,6 +374,7 @@ interface Ballot {
   deadline: number;         // Voting ends
   revealDeadline: number;   // Reveals must be submitted
   eligibility: EligibilityConfig;
+  voteType: VoteTypeConfig; // single | approval | ranked | score
   attestation: WitnessAttestation;
 }
 
@@ -256,7 +391,14 @@ interface Reveal {
   nullifier: string;    // Links to original vote
   choice: string;       // The actual choice
   salt: string;         // Proves commitment was honest
+  voteData?: VoteData;  // Extended data for approval/ranked/score
 }
+
+type VoteData =
+  | { type: 'single'; choice: string }
+  | { type: 'approval'; choices: string[] }
+  | { type: 'ranked'; rankings: string[] }
+  | { type: 'score'; scores: Record<string, number> };
 ```
 
 ## Security Properties
@@ -268,6 +410,8 @@ interface Reveal {
 | No Double Voting | Nullifier tracking via gossip |
 | Verifiability | Public commit-reveal scheme |
 | Timestamp Integrity | Witness BFT attestations |
+| Timing Attack Resistance | Random response delays |
+| IP Privacy | Header stripping in privacy mode |
 
 ## Configuration
 
@@ -309,6 +453,13 @@ VOTER_GATE_SCARCITY_URL=http://scarcity:3000  # For scarbucks gate
 VOTER_GATE_TOKEN_ID=<token-id>             # For scarbucks gate
 VOTER_GATE_MIN_AMOUNT=1                    # For scarbucks gate (default: 1)
 VOTER_GATE_ALLOWLIST=key1,key2,key3        # For allowlist gate
+
+# Enhanced Privacy Mode
+PRIVACY_MODE=false                         # Enable timing obfuscation & IP anonymization
+PRIVACY_MIN_DELAY_MS=100                   # Minimum random delay (ms)
+PRIVACY_MAX_DELAY_MS=2000                  # Maximum random delay (ms)
+DISABLE_LOGGING=false                      # Disable request logging
+ONION_LOCATION=http://your.onion           # Advertise Tor hidden service
 ```
 
 ## Testing
@@ -322,6 +473,9 @@ npm run test:integration
 
 # Run with coverage
 npm test -- --coverage
+
+# Run in mock mode for manual testing
+USE_MOCKS=true npm run dev
 ```
 
 ## License
