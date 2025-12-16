@@ -18,9 +18,30 @@ import type {
   CastVoteRequest,
   SubmitRevealRequest,
 } from '../prestige/types.js';
+import {
+  parsePrivacyConfig,
+  privacyDelay,
+  type PrivacyConfig,
+} from '../prestige/privacy.js';
+import {
+  securityHeaders,
+  ipAnonymization,
+  privacyAwareLogging,
+  privacyRateLimiter,
+} from './middleware/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Parse privacy configuration
+const privacyConfig: PrivacyConfig = parsePrivacyConfig(process.env);
+if (privacyConfig.enabled) {
+  console.log('Enhanced Privacy Mode: ENABLED');
+  console.log(`  Timing delays: ${privacyConfig.minDelayMs}-${privacyConfig.maxDelayMs}ms`);
+  if (privacyConfig.normalizedResponseMs > 0) {
+    console.log(`  Normalized response time: ${privacyConfig.normalizedResponseMs}ms`);
+  }
+}
 
 // Initialize Prestige
 // USE_MOCKS=true forces mock mode
@@ -53,18 +74,44 @@ if (useMocks || !hasWitnessUrl) {
 
 const app = express();
 
-// Middleware
+// ============= Security Middleware =============
+
+// Security headers (always enabled)
+app.use(securityHeaders({
+  strictCSP: true,
+  enableHSTS: process.env.NODE_ENV === 'production',
+  onionLocation: process.env.ONION_LOCATION,
+}));
+
+// CORS
 app.use(cors());
+
+// JSON body parsing
 app.use(express.json());
+
+// IP anonymization (privacy mode only)
+if (privacyConfig.enabled) {
+  app.use(ipAnonymization(true));
+}
+
+// Request logging (privacy-aware or standard)
+if (privacyConfig.enabled) {
+  app.use(privacyAwareLogging(process.env.DISABLE_LOGGING === 'true'));
+} else {
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
+    next();
+  });
+}
+
+// Rate limiting for sensitive endpoints
+const sensitiveRateLimiter = privacyRateLimiter(
+  60000, // 1 minute window
+  parseInt(process.env.RATE_LIMIT_REQUESTS || '30', 10), // requests per window
+);
 
 // Static files
 app.use(express.static(join(__dirname, 'public')));
-
-// Request logging
-app.use((req: Request, _res: Response, next: NextFunction) => {
-  console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
-  next();
-});
 
 // ============= Health & Info =============
 
@@ -304,9 +351,13 @@ app.get('/api/ballot/:id/petition', async (req: Request, res: Response) => {
 
 /**
  * POST /api/vote - Cast a vote
+ * Rate limited and timing-obfuscated for privacy
  */
-app.post('/api/vote', async (req: Request, res: Response) => {
+app.post('/api/vote', sensitiveRateLimiter, async (req: Request, res: Response) => {
   try {
+    // Add timing obfuscation before processing
+    await privacyDelay(privacyConfig);
+
     const request: CastVoteRequest = {
       ballotId: req.body.ballotId,
       commitment: req.body.commitment,
@@ -315,8 +366,15 @@ app.post('/api/vote', async (req: Request, res: Response) => {
     };
 
     const vote = await prestige.castVote(request);
+
+    // Add timing obfuscation after processing
+    await privacyDelay(privacyConfig);
+
     res.status(201).json(vote);
   } catch (error: any) {
+    // Still add delay on error to prevent timing attacks
+    await privacyDelay(privacyConfig);
+
     console.error('Error casting vote:', error);
     res.status(error.statusCode ?? 500).json({
       error: error.message,
@@ -343,12 +401,23 @@ app.get('/api/votes/:ballotId', async (req: Request, res: Response) => {
 
 /**
  * POST /api/token/:ballotId - Request eligibility token
+ * Rate limited and timing-obfuscated for privacy
  */
-app.post('/api/token/:ballotId', async (req: Request, res: Response) => {
+app.post('/api/token/:ballotId', sensitiveRateLimiter, async (req: Request, res: Response) => {
   try {
+    // Add timing obfuscation before processing
+    await privacyDelay(privacyConfig);
+
     const token = await prestige.requestEligibilityToken(req.params.ballotId);
+
+    // Add timing obfuscation after processing
+    await privacyDelay(privacyConfig);
+
     res.json(token);
   } catch (error: any) {
+    // Still add delay on error to prevent timing attacks
+    await privacyDelay(privacyConfig);
+
     console.error('Error requesting token:', error);
     res.status(error.statusCode ?? 500).json({
       error: error.message,
@@ -361,19 +430,31 @@ app.post('/api/token/:ballotId', async (req: Request, res: Response) => {
 
 /**
  * POST /api/reveal - Submit a reveal
+ * Rate limited and timing-obfuscated for privacy
  */
-app.post('/api/reveal', async (req: Request, res: Response) => {
+app.post('/api/reveal', sensitiveRateLimiter, async (req: Request, res: Response) => {
   try {
+    // Add timing obfuscation before processing
+    await privacyDelay(privacyConfig);
+
     const request: SubmitRevealRequest = {
       ballotId: req.body.ballotId,
       nullifier: req.body.nullifier,
       choice: req.body.choice,
       salt: req.body.salt,
+      voteData: req.body.voteData,
     };
 
     const reveal = await prestige.submitReveal(request);
+
+    // Add timing obfuscation after processing
+    await privacyDelay(privacyConfig);
+
     res.status(201).json(reveal);
   } catch (error: any) {
+    // Still add delay on error to prevent timing attacks
+    await privacyDelay(privacyConfig);
+
     console.error('Error submitting reveal:', error);
     res.status(error.statusCode ?? 500).json({
       error: error.message,

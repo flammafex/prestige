@@ -153,24 +153,192 @@
       <!-- Attestation Details -->
       <div class="card hidden" id="attestation-card">
         <div class="card-header">
-          <h3 class="card-title">Witness Attestation</h3>
-          <p class="card-subtitle">Cryptographic timestamp proof</p>
+          <h3 class="card-title">Witness Attestations</h3>
+          <p class="card-subtitle">Cryptographic timestamp proofs from trusted witnesses</p>
         </div>
 
-        <div class="form-group">
-          <label>Result Hash</label>
-          <input type="text" id="attestation-hash" readonly style="font-family: monospace; font-size: 0.75rem;">
+        <div id="witness-attestations" class="witness-attestations">
+          <!-- Witness entries populated by JS -->
         </div>
 
-        <div class="form-group">
-          <label>Timestamp</label>
-          <input type="text" id="attestation-time" readonly>
-        </div>
+        <details class="attestation-details">
+          <summary>Technical Details</summary>
+          <div class="form-group" style="margin-top: 1rem;">
+            <label>Result Hash</label>
+            <input type="text" id="attestation-hash" readonly class="mono-input">
+          </div>
 
-        <div class="form-group">
-          <label>Witnesses</label>
-          <div id="attestation-witnesses" style="font-family: monospace; font-size: 0.75rem; color: var(--text-secondary);"></div>
-        </div>
+          <div class="form-group">
+            <label>Attestation Timestamp</label>
+            <input type="text" id="attestation-time" readonly>
+          </div>
+
+          <div class="form-group">
+            <label>Witness Signatures</label>
+            <div id="attestation-signatures" class="signatures-list"></div>
+          </div>
+        </details>
+
+        <style>
+          .witness-attestations {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+          }
+          .witness-entry {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+          }
+          .witness-emoji {
+            font-size: 1.25rem;
+          }
+          .witness-info {
+            flex: 1;
+          }
+          .witness-domain {
+            font-weight: 600;
+            color: var(--text-primary);
+          }
+          .witness-time {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+          }
+          .witness-status {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--success);
+          }
+          .witness-status::before {
+            content: "✓";
+          }
+          .attestation-details {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+          }
+          .attestation-details summary {
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+          }
+          .attestation-details summary:hover {
+            color: var(--accent);
+          }
+          .mono-input {
+            font-family: monospace;
+            font-size: 0.75rem;
+          }
+          .signatures-list {
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            word-break: break-all;
+          }
+          .signature-entry {
+            padding: 0.5rem;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+          }
+          .signature-witness {
+            color: var(--accent);
+            font-weight: 500;
+          }
+        </style>
+      </div>
+
+      <!-- Vote Attestations (Expandable) -->
+      <div class="card hidden" id="vote-attestations-card">
+        <details class="vote-attestations-section">
+          <summary class="vote-attestations-header">
+            <span>📋 Individual Vote Attestations</span>
+            <span class="vote-count-badge" id="attested-vote-count">0 votes</span>
+          </summary>
+          <p class="vote-attestations-desc">Each vote was timestamped by witnesses when cast, providing proof of inclusion.</p>
+          <div id="vote-attestations-list" class="vote-attestations-list">
+            <!-- Vote attestation entries populated by JS -->
+          </div>
+        </details>
+
+        <style>
+          .vote-attestations-section summary {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            font-weight: 600;
+          }
+          .vote-attestations-desc {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin: 0.5rem 0 1rem 0;
+          }
+          .vote-count-badge {
+            font-size: 0.75rem;
+            font-weight: normal;
+            padding: 0.25rem 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 1rem;
+            color: var(--text-secondary);
+          }
+          .vote-attestations-list {
+            max-height: 300px;
+            overflow-y: auto;
+          }
+          .vote-attestation-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+          }
+          .vote-nullifier {
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .vote-attestation-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+          }
+          .vote-witness-list {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+          }
+          .vote-attestation-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          .vote-attestation-status.attested {
+            color: var(--success);
+          }
+          .vote-attestation-status.attested::before {
+            content: "🙌";
+          }
+          .vote-attestation-status.pending {
+            color: var(--text-muted);
+          }
+          .vote-attestation-status.pending::before {
+            content: "⏳";
+          }
+        </style>
       </div>
 
       <!-- Actions -->
@@ -205,6 +373,7 @@
       const resultsCard = document.getElementById('results-card');
       const verificationCard = document.getElementById('verification-card');
       const attestationCard = document.getElementById('attestation-card');
+      const voteAttestationsCard = document.getElementById('vote-attestations-card');
       const actionsCard = document.getElementById('actions-card');
 
       try {
@@ -251,6 +420,12 @@
           if (report.result?.attestation) {
             renderAttestation(report.result.attestation);
             attestationCard.classList.remove('hidden');
+          }
+
+          // Render individual vote attestations
+          if (report.votes?.total > 0) {
+            renderVoteAttestations(report);
+            voteAttestationsCard.classList.remove('hidden');
           }
         } catch (e) {
           console.log('Verification not available yet');
@@ -461,9 +636,104 @@
     }
 
     function renderAttestation(attestation) {
+      const witnessContainer = document.getElementById('witness-attestations');
+      const timestamp = new Date(attestation.timestamp);
+      const timeStr = timestamp.toLocaleString();
+
+      // Render each witness with 🙌 format
+      const witnessHtml = attestation.witnessIds.map(witnessId => {
+        // Extract domain from witness ID (handle URLs and plain domains)
+        const domain = extractDomain(witnessId);
+        return `
+          <div class="witness-entry">
+            <span class="witness-emoji">🙌</span>
+            <div class="witness-info">
+              <div class="witness-domain">Witnessed by ${escapeHtml(domain)}</div>
+              <div class="witness-time">at ${timeStr}</div>
+            </div>
+            <div class="witness-status">Verified</div>
+          </div>
+        `;
+      }).join('');
+
+      witnessContainer.innerHTML = witnessHtml;
+
+      // Technical details
       document.getElementById('attestation-hash').value = attestation.hash;
-      document.getElementById('attestation-time').value = new Date(attestation.timestamp).toISOString();
-      document.getElementById('attestation-witnesses').textContent = attestation.witnessIds.join('\n');
+      document.getElementById('attestation-time').value = timestamp.toISOString();
+
+      // Render signatures
+      const signaturesContainer = document.getElementById('attestation-signatures');
+      if (attestation.signatures && attestation.signatures.length > 0) {
+        const sigsHtml = attestation.signatures.map(sig => `
+          <div class="signature-entry">
+            <div><span class="signature-witness">${escapeHtml(extractDomain(sig.witnessId))}</span></div>
+            <div style="margin-top: 0.25rem;">${escapeHtml(sig.signature.substring(0, 64))}...</div>
+          </div>
+        `).join('');
+        signaturesContainer.innerHTML = sigsHtml;
+      } else {
+        signaturesContainer.innerHTML = attestation.witnessIds.map(id => `
+          <div class="signature-entry">
+            <span class="signature-witness">${escapeHtml(extractDomain(id))}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    function renderVoteAttestations(report) {
+      const voteCount = report.votes?.total || 0;
+      const attestedCount = report.integrity?.allVotesAttested ? voteCount : 0;
+
+      document.getElementById('attested-vote-count').textContent =
+        `${attestedCount}/${voteCount} attested`;
+
+      const listContainer = document.getElementById('vote-attestations-list');
+
+      // Get vote nullifiers
+      const nullifiers = report.votes?.nullifiers || [];
+
+      if (nullifiers.length === 0) {
+        listContainer.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No votes recorded</p>';
+        return;
+      }
+
+      // Render each vote with its attestation status
+      const votesHtml = nullifiers.map((nullifier, index) => {
+        // In a real implementation, we'd fetch individual vote attestation data
+        // For now, we show the nullifier and general attestation status
+        const isAttested = report.integrity?.allVotesAttested;
+        const statusClass = isAttested ? 'attested' : 'pending';
+        const statusText = isAttested ? 'Attested' : 'Pending';
+
+        return `
+          <div class="vote-attestation-entry">
+            <div class="vote-attestation-info">
+              <div>Vote #${index + 1}</div>
+              <div class="vote-nullifier" title="${escapeHtml(nullifier)}">${escapeHtml(nullifier.substring(0, 16))}...</div>
+            </div>
+            <div class="vote-attestation-status ${statusClass}">
+              ${statusText}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      listContainer.innerHTML = votesHtml;
+    }
+
+    function extractDomain(witnessId) {
+      // Handle URLs like http://localhost:8080 or https://witness.example.com
+      try {
+        if (witnessId.startsWith('http://') || witnessId.startsWith('https://')) {
+          const url = new URL(witnessId);
+          return url.host;
+        }
+      } catch (e) {
+        // Not a valid URL, return as-is
+      }
+      // Return the ID as-is if it's not a URL
+      return witnessId;
     }
 
     function escapeHtml(text) {
