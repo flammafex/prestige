@@ -13,6 +13,7 @@ import type {
   CreateBallotRequest,
   PrestigeError,
   BallotGateType,
+  VoteTypeConfig,
 } from './types.js';
 import { ErrorCodes } from './types.js';
 import type { WitnessAdapter } from './adapters/witness.js';
@@ -69,6 +70,8 @@ export class BallotManager {
       eligibility: request.eligibility ?? { type: 'open' },
       creatorPublicKey,
       status,
+      // Default to single choice voting for backwards compatibility
+      voteType: request.voteType ?? { type: 'single' },
     };
 
     // Get witness attestation for creation time
@@ -256,6 +259,55 @@ export class BallotManager {
     // Validate eligibility config
     if (request.eligibility) {
       this.validateEligibilityConfig(request.eligibility);
+    }
+
+    // Validate vote type config
+    if (request.voteType) {
+      this.validateVoteTypeConfig(request.voteType, request.choices.length);
+    }
+  }
+
+  /**
+   * Validate vote type configuration
+   */
+  private validateVoteTypeConfig(config: VoteTypeConfig, numChoices: number): void {
+    const validTypes = ['single', 'approval', 'ranked', 'score'];
+    if (!validTypes.includes(config.type)) {
+      throw new PrestigeValidationError(
+        `Invalid vote type. Must be one of: ${validTypes.join(', ')}`
+      );
+    }
+
+    // Validate score voting config
+    if (config.type === 'score') {
+      const minScore = config.minScore ?? 0;
+      const maxScore = config.maxScore ?? 10;
+
+      if (minScore < 0) {
+        throw new PrestigeValidationError('Score voting minScore cannot be negative');
+      }
+      if (maxScore > 100) {
+        throw new PrestigeValidationError('Score voting maxScore cannot exceed 100');
+      }
+      if (minScore >= maxScore) {
+        throw new PrestigeValidationError('Score voting minScore must be less than maxScore');
+      }
+    }
+
+    // Validate ranked choice config
+    if (config.type === 'ranked') {
+      const minRankings = config.minRankings ?? 1;
+      const maxRankings = config.maxRankings ?? numChoices;
+
+      if (minRankings < 1) {
+        throw new PrestigeValidationError('Ranked choice minRankings must be at least 1');
+      }
+      if (maxRankings > numChoices) {
+        throw new PrestigeValidationError('Ranked choice maxRankings cannot exceed number of choices');
+      }
+      if (minRankings > maxRankings) {
+        throw new PrestigeValidationError('Ranked choice minRankings cannot exceed maxRankings');
+      }
     }
   }
 

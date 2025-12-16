@@ -298,15 +298,46 @@
     function renderResults(results, ballot) {
       const container = document.getElementById('results-container');
       const tally = results.tally || {};
-      const totalVotes = results.totalVotes || results.validReveals || 0;
+      const voteType = results.voteType || ballot.voteType?.type || 'single';
 
-      // Find max votes for winner highlighting
+      // Show vote type
+      const voteTypeLabels = {
+        single: 'Single Choice',
+        approval: 'Approval Voting',
+        ranked: 'Ranked Choice (IRV)',
+        score: 'Score Voting'
+      };
+
+      const typeLabel = document.createElement('div');
+      typeLabel.className = 'vote-type-label';
+      typeLabel.textContent = voteTypeLabels[voteType] || 'Single Choice';
+
+      // Render based on vote type
+      switch (voteType) {
+        case 'ranked':
+          container.innerHTML = '';
+          container.appendChild(typeLabel);
+          renderRankedResults(container, results, ballot);
+          break;
+        case 'score':
+          container.innerHTML = '';
+          container.appendChild(typeLabel);
+          renderScoreResults(container, results, ballot);
+          break;
+        default:
+          container.innerHTML = '';
+          container.appendChild(typeLabel);
+          renderStandardResults(container, results, ballot);
+      }
+    }
+
+    function renderStandardResults(container, results, ballot) {
+      const tally = results.tally || {};
+      const totalVotes = results.validReveals || 0;
       const maxVotes = Math.max(...Object.values(tally), 0);
+      const sortedChoices = [...ballot.choices].sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
 
-      // Sort by vote count
-      const sortedChoices = ballot.choices.sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
-
-      container.innerHTML = sortedChoices.map(choice => {
+      const html = sortedChoices.map(choice => {
         const votes = tally[choice] || 0;
         const percentage = totalVotes > 0 ? (votes / totalVotes * 100) : 0;
         const isWinner = votes === maxVotes && maxVotes > 0;
@@ -323,6 +354,95 @@
           </div>
         `;
       }).join('');
+
+      container.insertAdjacentHTML('beforeend', html);
+    }
+
+    function renderRankedResults(container, results, ballot) {
+      const rounds = results.rankedChoiceRounds || [];
+      const finalTally = results.tally || {};
+
+      // Show final results first
+      const maxVotes = Math.max(...Object.values(finalTally), 0);
+      const sortedChoices = [...ballot.choices].sort((a, b) => (finalTally[b] || 0) - (finalTally[a] || 0));
+      const totalInFinal = Object.values(finalTally).reduce((sum, v) => sum + v, 0);
+
+      let html = '<h4 style="margin: 1rem 0 0.5rem;">Final Result</h4>';
+      html += sortedChoices.map(choice => {
+        const votes = finalTally[choice] || 0;
+        const percentage = totalInFinal > 0 ? (votes / totalInFinal * 100) : 0;
+        const isWinner = votes === maxVotes && maxVotes > 0;
+
+        return `
+          <div class="result-bar-container">
+            <div class="result-label">
+              <span class="result-choice">${escapeHtml(choice)}</span>
+              <span class="result-count">${votes} votes (${percentage.toFixed(1)}%)</span>
+            </div>
+            <div class="result-bar">
+              <div class="result-bar-fill ${isWinner ? 'winner' : ''}" style="width: ${percentage}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Show round-by-round breakdown
+      if (rounds.length > 1) {
+        html += '<div class="rounds-container"><h4 style="margin: 1.5rem 0 0.5rem;">Round-by-Round</h4>';
+        rounds.forEach(round => {
+          const roundTotal = Object.values(round.votes).reduce((sum, v) => sum + v, 0);
+          html += `
+            <div class="round-card">
+              <div class="round-header">
+                <span class="round-title">Round ${round.round}</span>
+                ${round.eliminated ? `<span class="round-eliminated">Eliminated: ${escapeHtml(round.eliminated)}</span>` : ''}
+              </div>
+              ${Object.entries(round.votes)
+                .sort((a, b) => b[1] - a[1])
+                .map(([choice, votes]) => {
+                  const pct = roundTotal > 0 ? (votes / roundTotal * 100) : 0;
+                  return `<div style="display: flex; justify-content: space-between; font-size: 0.875rem; padding: 0.25rem 0;">
+                    <span>${escapeHtml(choice)}</span>
+                    <span style="color: var(--text-secondary);">${votes} (${pct.toFixed(1)}%)</span>
+                  </div>`;
+                }).join('')}
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      container.insertAdjacentHTML('beforeend', html);
+    }
+
+    function renderScoreResults(container, results, ballot) {
+      const tally = results.tally || {};
+      const averageScores = results.averageScores || {};
+      const maxScore = Math.max(...Object.values(tally), 0);
+      const maxAvg = Math.max(...Object.values(averageScores), 0);
+      const sortedChoices = [...ballot.choices].sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
+
+      let html = '<h4 style="margin: 1rem 0 0.5rem;">Total Scores</h4>';
+      html += sortedChoices.map(choice => {
+        const score = tally[choice] || 0;
+        const avg = averageScores[choice] || 0;
+        const percentage = maxScore > 0 ? (score / maxScore * 100) : 0;
+        const isWinner = score === maxScore && maxScore > 0;
+
+        return `
+          <div class="result-bar-container">
+            <div class="result-label">
+              <span class="result-choice">${escapeHtml(choice)}</span>
+              <span class="result-count">${score} pts (avg: ${avg.toFixed(2)})</span>
+            </div>
+            <div class="result-bar">
+              <div class="result-bar-fill ${isWinner ? 'winner' : ''}" style="width: ${percentage}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.insertAdjacentHTML('beforeend', html);
     }
 
     function renderVerification(report) {

@@ -33,13 +33,14 @@ const api = {
 
   // ============= Ballot Operations =============
 
-  async createBallot({ question, choices, durationMinutes, revealWindowMinutes, eligibility }) {
+  async createBallot({ question, choices, durationMinutes, revealWindowMinutes, eligibility, voteType }) {
     return this.request('POST', '/api/ballot', {
       question,
       choices,
       durationMinutes,
       revealWindowMinutes,
       eligibility,
+      voteType,
     });
   },
 
@@ -81,12 +82,13 @@ const api = {
 
   // ============= Reveal Operations =============
 
-  async submitReveal({ ballotId, nullifier, choice, salt }) {
+  async submitReveal({ ballotId, nullifier, choice, salt, voteData }) {
     return this.request('POST', '/api/reveal', {
       ballotId,
       nullifier,
       choice,
       salt,
+      voteData,
     });
   },
 

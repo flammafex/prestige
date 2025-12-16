@@ -40,6 +40,39 @@ const prestigeCrypto = {
   },
 
   /**
+   * Generate a commitment for extended vote types: H(serialized(voteData) || salt)
+   */
+  async generateVoteCommitment(voteData, salt) {
+    const serialized = this.serializeVoteData(voteData);
+    return this.hash(serialized, salt);
+  },
+
+  /**
+   * Serialize vote data deterministically for commitment generation
+   */
+  serializeVoteData(voteData) {
+    switch (voteData.type) {
+      case 'single':
+        return voteData.choice;
+      case 'approval':
+        // Sort choices for deterministic serialization
+        return `approval:${[...voteData.choices].sort().join(',')}`;
+      case 'ranked':
+        // Order matters for rankings, don't sort
+        return `ranked:${voteData.rankings.join(',')}`;
+      case 'score':
+        // Sort by choice name for deterministic serialization
+        const sortedScores = Object.entries(voteData.scores)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([choice, score]) => `${choice}:${score}`)
+          .join(',');
+        return `score:${sortedScores}`;
+      default:
+        throw new Error(`Unknown vote type: ${voteData.type}`);
+    }
+  },
+
+  /**
    * Generate a nullifier: H(voterSecret || ballotId)
    */
   async generateNullifier(voterSecret, ballotId) {

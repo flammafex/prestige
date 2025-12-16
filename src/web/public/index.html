@@ -80,6 +80,47 @@
             </div>
 
             <div class="form-group">
+              <label for="vote-type">Voting Method</label>
+              <select id="vote-type" name="vote-type">
+                <option value="single">Single Choice - Pick one option</option>
+                <option value="approval">Approval - Vote for all you approve</option>
+                <option value="ranked">Ranked Choice (IRV) - Rank in preference order</option>
+                <option value="score">Score - Rate each option</option>
+              </select>
+              <p class="hint">Select how voters will cast their votes</p>
+            </div>
+
+            <!-- Score voting options -->
+            <div class="form-group hidden" id="score-options">
+              <label>Score Range</label>
+              <div style="display: flex; gap: 1rem;">
+                <div style="flex: 1;">
+                  <label for="min-score" style="font-size: 0.875rem; color: var(--text-secondary);">Min</label>
+                  <input type="number" id="min-score" value="0" min="0" max="100">
+                </div>
+                <div style="flex: 1;">
+                  <label for="max-score" style="font-size: 0.875rem; color: var(--text-secondary);">Max</label>
+                  <input type="number" id="max-score" value="10" min="1" max="100">
+                </div>
+              </div>
+            </div>
+
+            <!-- Ranked choice options -->
+            <div class="form-group hidden" id="ranked-options">
+              <label>Ranking Requirements</label>
+              <div style="display: flex; gap: 1rem;">
+                <div style="flex: 1;">
+                  <label for="min-rankings" style="font-size: 0.875rem; color: var(--text-secondary);">Min Rankings</label>
+                  <input type="number" id="min-rankings" value="1" min="1">
+                </div>
+                <div style="flex: 1;">
+                  <label for="max-rankings" style="font-size: 0.875rem; color: var(--text-secondary);">Max Rankings (optional)</label>
+                  <input type="number" id="max-rankings" placeholder="All">
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
               <label for="duration">Voting Duration (minutes)</label>
               <input
                 type="number"
@@ -202,6 +243,62 @@
       btn.parentElement.remove();
     }
 
+    // Vote type selection handler
+    document.getElementById('vote-type').addEventListener('change', (e) => {
+      const voteType = e.target.value;
+      const scoreOptions = document.getElementById('score-options');
+      const rankedOptions = document.getElementById('ranked-options');
+
+      // Hide all type-specific options
+      scoreOptions.classList.add('hidden');
+      rankedOptions.classList.add('hidden');
+
+      // Show relevant options
+      if (voteType === 'score') {
+        scoreOptions.classList.remove('hidden');
+      } else if (voteType === 'ranked') {
+        rankedOptions.classList.remove('hidden');
+      }
+    });
+
+    // Build vote type config from form
+    function buildVoteTypeConfig() {
+      const voteType = document.getElementById('vote-type').value;
+
+      if (voteType === 'single') {
+        return { type: 'single' };
+      }
+
+      if (voteType === 'approval') {
+        return { type: 'approval' };
+      }
+
+      if (voteType === 'ranked') {
+        const minRankings = parseInt(document.getElementById('min-rankings').value, 10) || 1;
+        const maxRankingsValue = document.getElementById('max-rankings').value;
+        const maxRankings = maxRankingsValue ? parseInt(maxRankingsValue, 10) : undefined;
+
+        return {
+          type: 'ranked',
+          minRankings,
+          ...(maxRankings && { maxRankings })
+        };
+      }
+
+      if (voteType === 'score') {
+        const minScore = parseInt(document.getElementById('min-score').value, 10) || 0;
+        const maxScore = parseInt(document.getElementById('max-score').value, 10) || 10;
+
+        return {
+          type: 'score',
+          minScore,
+          maxScore
+        };
+      }
+
+      return { type: 'single' };
+    }
+
     // Form submission
     document.getElementById('ballot-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -216,12 +313,14 @@
         const choices = Array.from(choiceInputs).map(input => input.value).filter(v => v.trim());
         const durationMinutes = parseInt(document.getElementById('duration').value, 10);
         const revealWindowMinutes = parseInt(document.getElementById('reveal-window').value, 10);
+        const voteType = buildVoteTypeConfig();
 
         const result = await api.createBallot({
           question,
           choices,
           durationMinutes,
           revealWindowMinutes,
+          voteType,
         });
 
         // Show success
