@@ -735,6 +735,20 @@ export {
   type HyperTokenAdapter,
 } from './adapters/hypertoken.js';
 
+// Privacy utilities
+export {
+  randomDelay,
+  privacyDelay,
+  withNormalizedTiming,
+  jitterTimestamp,
+  constantTimeCompare,
+  shuffleArray,
+  parsePrivacyConfig,
+  RequestBatcher,
+  DEFAULT_PRIVACY_CONFIG,
+  type PrivacyConfig,
+} from './privacy.js';
+
 // Gate system exports
 export {
   createBallotGate,
