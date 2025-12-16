@@ -116,6 +116,8 @@ export interface GateConfig {
   ballotGateTrustHops?: number;
   ballotGateCloutUrl?: string;
   ballotGateFreebirdIssuer?: string;
+  /** Separate Freebird issuer URL for ballot gate (invitation mode) */
+  ballotGateFreebirdIssuerUrl?: string;
   ballotGatePetitionThreshold?: number;
 
   // Voter Gate configuration
@@ -126,6 +128,8 @@ export interface GateConfig {
   voterGateMinAmount?: number;
   voterGateScarcityUrl?: string;
   voterGateAllowlist?: string[];
+  /** Separate Freebird issuer URL for voter gate (webauthn/pow mode) */
+  voterGateFreebirdIssuerUrl?: string;
 
   // Proposal Gate configuration (when ballotGate=petition)
   petitionProposalGate?: ProposalGateType;

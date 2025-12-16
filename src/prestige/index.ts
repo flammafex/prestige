@@ -513,6 +513,7 @@ export class Prestige {
       ballotGateTrustHops: this.config.ballotGateTrustHops,
       ballotGateCloutUrl: this.config.ballotGateCloutUrl,
       ballotGateFreebirdIssuer: this.config.ballotGateFreebirdIssuer,
+      ballotGateFreebirdIssuerUrl: this.config.ballotGateFreebirdIssuerUrl,
       ballotGatePetitionThreshold: this.config.ballotGatePetitionThreshold,
       voterGate: this.config.voterGate ?? 'freebird',
       // Proposal gate config (for petition ballot gate)
@@ -529,6 +530,7 @@ export class Prestige {
       config: gateConfig,
       store: this.store,
       freebird: this.freebird,
+      freebirdVerifierUrl: this.config.freebirdVerifierUrl,
       instancePublicKey: this.identity.publicKey,
       voterGate: this.voterGate,
     });
@@ -545,12 +547,14 @@ export class Prestige {
       voterGateMinAmount: this.config.voterGateMinAmount,
       voterGateScarcityUrl: this.config.voterGateScarcityUrl,
       voterGateAllowlist: this.config.voterGateAllowlist,
+      voterGateFreebirdIssuerUrl: this.config.voterGateFreebirdIssuerUrl,
     };
 
     return createVoterGate({
       config: gateConfig,
       store: this.store,
       freebird: this.freebird,
+      freebirdVerifierUrl: this.config.freebirdVerifierUrl,
       instancePublicKey: this.identity.publicKey,
     });
   }
@@ -626,6 +630,7 @@ export function createPrestige(configOverrides?: Partial<PrestigeConfig>): Prest
       : 2,
     ballotGateCloutUrl: process.env.BALLOT_GATE_CLOUT_URL,
     ballotGateFreebirdIssuer: process.env.BALLOT_GATE_FREEBIRD_ISSUER,
+    ballotGateFreebirdIssuerUrl: process.env.BALLOT_GATE_FREEBIRD_ISSUER_URL,
     ballotGatePetitionThreshold: process.env.BALLOT_GATE_PETITION_THRESHOLD
       ? parseInt(process.env.BALLOT_GATE_PETITION_THRESHOLD, 10)
       : 10,
@@ -642,6 +647,7 @@ export function createPrestige(configOverrides?: Partial<PrestigeConfig>): Prest
       : 1,
     voterGateScarcityUrl: process.env.VOTER_GATE_SCARCITY_URL,
     voterGateAllowlist: process.env.VOTER_GATE_ALLOWLIST?.split(',').filter(Boolean),
+    voterGateFreebirdIssuerUrl: process.env.VOTER_GATE_FREEBIRD_ISSUER_URL,
 
     // Proposal Gate configuration (when BALLOT_GATE=petition)
     petitionProposalGate: (process.env.PETITION_PROPOSAL_GATE as any) ?? 'voters',

@@ -191,6 +191,8 @@ export interface PrestigeConfig {
   ballotGateTrustHops?: number;
   ballotGateCloutUrl?: string;
   ballotGateFreebirdIssuer?: string;
+  /** Separate Freebird issuer URL for ballot gate (invitation mode) */
+  ballotGateFreebirdIssuerUrl?: string;
   ballotGatePetitionThreshold?: number;
 
   // Voter Gate (who can vote - instance level)
@@ -201,6 +203,8 @@ export interface PrestigeConfig {
   voterGateMinAmount?: number;
   voterGateScarcityUrl?: string;
   voterGateAllowlist?: string[];
+  /** Separate Freebird issuer URL for voter gate (webauthn/pow mode) */
+  voterGateFreebirdIssuerUrl?: string;
 
   // Proposal Gate (who can open petitions - when ballotGate=petition)
   petitionProposalGate?: ProposalGateType;
