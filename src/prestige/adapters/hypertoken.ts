@@ -94,10 +94,11 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
         };
 
         this.ws.onerror = (error) => {
+          const errorMessage = `WebSocket connection failed to ${this.config.relayUrl}`;
           if (!this.connected) {
-            reject(error);
+            reject(new Error(errorMessage));
           }
-          console.error('WebSocket error:', error);
+          console.error(errorMessage);
         };
       } catch (error) {
         reject(error);

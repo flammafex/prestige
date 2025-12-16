@@ -659,7 +659,16 @@ export function createPrestige(configOverrides?: Partial<PrestigeConfig>): Prest
     ...configOverrides,
   };
 
-  return new Prestige({ config });
+  // Use mock HyperToken if relay URL is not configured (single-node deployment)
+  const hypertoken = process.env.HYPERTOKEN_RELAY_URL
+    ? undefined  // Will create real adapter
+    : new MockHyperTokenAdapter();
+
+  if (!process.env.HYPERTOKEN_RELAY_URL) {
+    console.log('  HyperToken: disabled (no HYPERTOKEN_RELAY_URL configured)');
+  }
+
+  return new Prestige({ config, hypertoken });
 }
 
 /**
