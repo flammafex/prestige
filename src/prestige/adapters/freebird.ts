@@ -36,6 +36,10 @@ export interface FreebirdAdapter {
 
 /**
  * HTTP-based Freebird adapter for production use
+ *
+ * Note: Token issuance requires an invitation code from Freebird.
+ * For MVP, use open voter gate. For production, users should
+ * obtain Freebird tokens externally and present them to vote.
  */
 export class HttpFreebirdAdapter implements FreebirdAdapter {
   private timeout: number;
@@ -44,58 +48,48 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
     this.timeout = config.timeout ?? 10000;
   }
 
+  /**
+   * Issue a token using an invitation code
+   * In the real flow, the invitation_code would come from the user
+   * For now, this is a placeholder - use open voter gate for MVP
+   */
   async issue(context: string): Promise<FreebirdToken> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      // Step 1: Get blinding factor from issuer
-      const blindResponse = await fetch(`${this.config.issuerUrl}/blind`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ context }),
-        signal: controller.signal,
-      });
-
-      if (!blindResponse.ok) {
-        throw new FreebirdError(
-          `Failed to get blinding factor: ${blindResponse.status}`,
-          'ISSUE_FAILED'
-        );
-      }
-
-      const blindData = await blindResponse.json() as { blindedToken: string };
-
-      // Step 2: Get signed token
-      const signResponse = await fetch(`${this.config.issuerUrl}/sign`, {
+      // Real Freebird API requires invitation_code
+      // This is a design mismatch - for MVP, use open voter gate
+      const response = await fetch(`${this.config.issuerUrl}/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          blindedToken: blindData.blindedToken,
-          context,
+          // invitation_code would need to come from somewhere
+          // For now, this will fail unless you have a valid code
+          invitation_code: context,
+          user_id: `prestige-voter-${Date.now()}`,
         }),
         signal: controller.signal,
       });
 
-      if (!signResponse.ok) {
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
         throw new FreebirdError(
-          `Failed to sign token: ${signResponse.status}`,
+          `Failed to issue token: ${response.status} ${response.statusText}${body ? ` - ${body}` : ''}`,
           'ISSUE_FAILED'
         );
       }
 
-      const signData = await signResponse.json() as {
-        blindedToken: string;
-        proof: string;
-        issuerPublicKey: string;
-        expiresAt: number;
+      const data = await response.json() as {
+        token: string;
+        expires_at: number;
       };
 
       return {
-        blindedToken: signData.blindedToken,
-        proof: signData.proof,
-        issuerPublicKey: signData.issuerPublicKey,
-        expiresAt: signData.expiresAt,
+        blindedToken: data.token,
+        proof: '',
+        issuerPublicKey: '',
+        expiresAt: data.expires_at * 1000, // Convert to ms if needed
       };
     } finally {
       clearTimeout(timeoutId);
@@ -115,7 +109,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
       const response = await fetch(`${this.config.verifierUrl}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(token),
+        body: JSON.stringify({ token: token.blindedToken }),
         signal: controller.signal,
       });
 
@@ -123,11 +117,13 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
         return false;
       }
 
-      const data = await response.json() as { valid: boolean };
+      const data = await response.json() as {
+        valid: boolean;
+        issuer_id?: string;
+        expires_at?: number;
+      };
       return data.valid === true;
     } catch {
-      // On network error, fail open for availability
-      // In production, consider caching or fallback strategies
       console.warn('Freebird verification failed, assuming invalid');
       return false;
     } finally {
