@@ -395,27 +395,29 @@ app.get('/api/reveals/:ballotId/stats', async (req: Request, res: Response) => {
 
 /**
  * GET /api/results/:ballotId - Get final results
+ * Results are hidden until the ballot is finalized for coercion resistance
  */
 app.get('/api/results/:ballotId', async (req: Request, res: Response) => {
   try {
+    const status = await prestige.getBallotStatus(req.params.ballotId);
+    if (!status) {
+      res.status(404).json({ error: 'Ballot not found', code: 'BALLOT_NOT_FOUND' });
+      return;
+    }
+
+    // Hide results until finalized for coercion resistance
+    if (!status.isFinalized) {
+      res.status(403).json({
+        error: 'Results are hidden until voting and reveal phases are complete',
+        code: 'RESULTS_HIDDEN',
+        status: status.ballot.status,
+        revealDeadline: status.ballot.revealDeadline,
+      });
+      return;
+    }
+
     const result = await prestige.getResults(req.params.ballotId);
     if (!result) {
-      // Try live tally if not finalized
-      const status = await prestige.getBallotStatus(req.params.ballotId);
-      if (!status) {
-        res.status(404).json({ error: 'Ballot not found', code: 'BALLOT_NOT_FOUND' });
-        return;
-      }
-
-      if (!status.isFinalized) {
-        const liveTally = await prestige.getLiveTally(req.params.ballotId);
-        res.json({
-          ...liveTally,
-          warning: 'Results not finalized. This is a live preview.',
-        });
-        return;
-      }
-
       res.status(404).json({ error: 'Results not available', code: 'RESULTS_NOT_FOUND' });
       return;
     }
@@ -431,9 +433,27 @@ app.get('/api/results/:ballotId', async (req: Request, res: Response) => {
 
 /**
  * GET /api/results/:ballotId/live - Get live tally
+ * Disabled for coercion resistance - results hidden until finalized
  */
 app.get('/api/results/:ballotId/live', async (req: Request, res: Response) => {
   try {
+    const status = await prestige.getBallotStatus(req.params.ballotId);
+    if (!status) {
+      res.status(404).json({ error: 'Ballot not found', code: 'BALLOT_NOT_FOUND' });
+      return;
+    }
+
+    // Hide live tally for coercion resistance
+    if (!status.isFinalized) {
+      res.status(403).json({
+        error: 'Live tally is disabled for coercion resistance',
+        code: 'RESULTS_HIDDEN',
+        status: status.ballot.status,
+      });
+      return;
+    }
+
+    // If finalized, return final results instead
     const liveTally = await prestige.getLiveTally(req.params.ballotId);
     res.json(liveTally);
   } catch (error: any) {
