@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Results - Prestige</title>
+  <meta name="description" content="Verifiable voting results">
+
+  <!-- PWA Meta Tags -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prestige">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Prestige">
+  <meta name="msapplication-TileColor" content="#0a0a0f">
+  <meta name="msapplication-tap-highlight" content="no">
+
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/icon-152.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png">
+  <link rel="apple-touch-icon" sizes="167x167" href="/icon-167.png">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <noscript>
+    <div style="padding: 2rem; text-align: center; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+      <h1 style="margin-bottom: 1rem;">JavaScript Required</h1>
+      <p style="max-width: 400px; line-height: 1.6;">Prestige requires JavaScript for cryptographic operations and anonymous voting. Please enable JavaScript to continue.</p>
+    </div>
+  </noscript>
+  <!-- Skip link for keyboard navigation -->
+  <a href="#main-content" class="skip-link" style="position: absolute; left: -9999px; top: 0; z-index: 999; padding: 1rem; background: var(--accent); color: white;">Skip to main content</a>
+  <style>.skip-link:focus { left: 0; }</style>
+  <div class="container">
+    <header>
+      <a href="/" style="color: inherit; text-decoration: none;"><img src="prestige.webp" width=600></a>
+      <p class="tagline">Secret ballot. Public proof.</p>
+    </header>
+
+    <main id="main-content">
+      <!-- Loading State -->
+      <div class="card" id="loading-card">
+        <div class="loading">
+          <div class="spinner"></div>
+          Loading results...
+        </div>
+      </div>
+
+      <!-- Error State -->
+      <div class="card hidden" id="error-card">
+        <div class="alert alert-error" id="error-message">
+          Results not found
+        </div>
+        <a href="/" class="btn btn-secondary btn-block">Back to Home</a>
+      </div>
+
+      <!-- Results Hidden State (coercion resistance) -->
+      <div class="card hidden" id="hidden-card">
+        <div class="card-header">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <h2 class="card-title" id="hidden-question"></h2>
+            <span class="badge" id="hidden-status"></span>
+          </div>
+        </div>
+
+        <div class="alert alert-info">
+          <strong>Results are hidden</strong><br>
+          For coercion resistance, results are not shown until all voters have had a chance to reveal their votes.
+        </div>
+
+        <div style="margin-top: 1rem; color: var(--text-secondary);">
+          <p id="hidden-reason"></p>
+          <p id="hidden-deadline" style="margin-top: 0.5rem;"></p>
+        </div>
+
+        <div class="btn-group" style="flex-direction: column; gap: 0.5rem; margin-top: 1.5rem;">
+          <a href="#" id="hidden-vote-link" class="btn btn-primary btn-block">Go to Ballot</a>
+          <button type="button" class="btn btn-secondary btn-block" id="refresh-btn">Refresh</button>
+        </div>
+      </div>
+
+      <!-- Results Card -->
+      <div class="card hidden" id="results-card">
+        <div class="card-header">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <h2 class="card-title" id="ballot-question"></h2>
+            <span class="badge" id="ballot-status"></span>
+          </div>
+        </div>
+
+
+        <div id="results-container"></div>
+      </div>
+
+      <!-- Verification Card -->
+      <div class="card hidden" id="verification-card">
+        <div class="card-header">
+          <h3 class="card-title">Verification</h3>
+          <p class="card-subtitle">Cryptographic proof of ballot integrity</p>
+        </div>
+
+        <div class="verification-summary">
+          <div class="verification-item">
+            <div class="verification-value" id="verify-votes">0</div>
+            <div class="verification-label">Votes Cast</div>
+          </div>
+          <div class="verification-item">
+            <div class="verification-value" id="verify-reveals">0</div>
+            <div class="verification-label">Reveals</div>
+          </div>
+          <div class="verification-item">
+            <div class="verification-value" id="verify-valid">0</div>
+            <div class="verification-label">Valid</div>
+          </div>
+        </div>
+
+        <div id="integrity-checks" style="margin-top: 1rem;">
+          <div class="check-item" id="check-attestation">
+            <span class="check-icon"></span>
+            <span class="check-text">All votes attested by witnesses</span>
+          </div>
+          <div class="check-item" id="check-reveals">
+            <span class="check-icon"></span>
+            <span class="check-text">All reveals verified against commitments</span>
+          </div>
+          <div class="check-item" id="check-result">
+            <span class="check-icon"></span>
+            <span class="check-text">Result attested by witnesses</span>
+          </div>
+        </div>
+
+        <style>
+          .check-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            color: var(--text-secondary);
+          }
+          .check-item.valid .check-icon::before {
+            content: "✓";
+            color: var(--success);
+          }
+          .check-item.invalid .check-icon::before {
+            content: "✗";
+            color: var(--error);
+          }
+          .check-item.pending .check-icon::before {
+            content: "○";
+            color: var(--text-muted);
+          }
+        </style>
+      </div>
+
+      <!-- Attestation Details -->
+      <div class="card hidden" id="attestation-card">
+        <div class="card-header">
+          <h3 class="card-title">Witness Attestations</h3>
+          <p class="card-subtitle">Cryptographic timestamp proofs from trusted witnesses</p>
+        </div>
+
+        <div id="witness-attestations" class="witness-attestations">
+          <!-- Witness entries populated by JS -->
+        </div>
+
+        <details class="attestation-details">
+          <summary>Technical Details</summary>
+          <div class="form-group" style="margin-top: 1rem;">
+            <label>Result Hash</label>
+            <input type="text" id="attestation-hash" readonly class="mono-input">
+          </div>
+
+          <div class="form-group">
+            <label>Attestation Timestamp</label>
+            <input type="text" id="attestation-time" readonly>
+          </div>
+
+          <div class="form-group">
+            <label>Witness Signatures</label>
+            <div id="attestation-signatures" class="signatures-list"></div>
+          </div>
+        </details>
+
+        <style>
+          .witness-attestations {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+          }
+          .witness-entry {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+          }
+          .witness-emoji {
+            font-size: 1.25rem;
+          }
+          .witness-info {
+            flex: 1;
+          }
+          .witness-domain {
+            font-weight: 600;
+            color: var(--text-primary);
+          }
+          .witness-time {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+          }
+          .witness-status {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--success);
+          }
+          .witness-status::before {
+            content: "✓";
+          }
+          .attestation-details {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+          }
+          .attestation-details summary {
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+          }
+          .attestation-details summary:hover {
+            color: var(--accent);
+          }
+          .mono-input {
+            font-family: monospace;
+            font-size: 0.75rem;
+          }
+          .signatures-list {
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            word-break: break-all;
+          }
+          .signature-entry {
+            padding: 0.5rem;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+          }
+          .signature-witness {
+            color: var(--accent);
+            font-weight: 500;
+          }
+        </style>
+      </div>
+
+      <!-- Vote Attestations (Expandable) -->
+      <div class="card hidden" id="vote-attestations-card">
+        <details class="vote-attestations-section">
+          <summary class="vote-attestations-header">
+            <span>📋 Individual Vote Attestations</span>
+            <span class="vote-count-badge" id="attested-vote-count">0 votes</span>
+          </summary>
+          <p class="vote-attestations-desc">Each vote was timestamped by witnesses when cast, providing proof of inclusion.</p>
+          <div id="vote-attestations-list" class="vote-attestations-list">
+            <!-- Vote attestation entries populated by JS -->
+          </div>
+        </details>
+
+        <style>
+          .vote-attestations-section summary {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            font-weight: 600;
+          }
+          .vote-attestations-desc {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin: 0.5rem 0 1rem 0;
+          }
+          .vote-count-badge {
+            font-size: 0.75rem;
+            font-weight: normal;
+            padding: 0.25rem 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 1rem;
+            color: var(--text-secondary);
+          }
+          .vote-attestations-list {
+            max-height: 300px;
+            overflow-y: auto;
+          }
+          .vote-attestation-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+          }
+          .vote-nullifier {
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .vote-attestation-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+          }
+          .vote-witness-list {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+          }
+          .vote-attestation-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          .vote-attestation-status.attested {
+            color: var(--success);
+          }
+          .vote-attestation-status.attested::before {
+            content: "🙌";
+          }
+          .vote-attestation-status.pending {
+            color: var(--text-muted);
+          }
+          .vote-attestation-status.pending::before {
+            content: "⏳";
+          }
+        </style>
+      </div>
+
+      <!-- Audit Export -->
+      <div class="card hidden" id="export-card">
+        <div class="card-header">
+          <h3 class="card-title">📊 Audit Export</h3>
+          <p class="card-subtitle">Download ballot data for third-party verification</p>
+        </div>
+
+        <div class="export-buttons">
+          <a id="export-json-btn" href="#" class="btn btn-secondary export-btn" download>
+            <span class="export-icon">{ }</span>
+            <span class="export-label">
+              <span class="export-format">JSON</span>
+              <span class="export-desc">Full audit data</span>
+            </span>
+          </a>
+          <a id="export-csv-btn" href="#" class="btn btn-secondary export-btn" download>
+            <span class="export-icon">📋</span>
+            <span class="export-label">
+              <span class="export-format">CSV</span>
+              <span class="export-desc">Spreadsheet format</span>
+            </span>
+          </a>
+        </div>
+
+        <p class="export-info">
+          Exported data includes all votes, reveals, attestations, and cryptographic proofs for independent verification.
+        </p>
+
+        <style>
+          .export-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+          }
+          .export-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            text-decoration: none;
+          }
+          .export-icon {
+            font-size: 1.5rem;
+            width: 2.5rem;
+            text-align: center;
+          }
+          .export-label {
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+          }
+          .export-format {
+            font-weight: 600;
+            font-size: 1rem;
+          }
+          .export-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+          }
+          .export-info {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin: 0;
+          }
+          @media (max-width: 480px) {
+            .export-buttons {
+              flex-direction: column;
+            }
+          }
+        </style>
+      </div>
+
+      <!-- Actions -->
+      <div class="card hidden" id="actions-card">
+        <div class="btn-group" style="flex-direction: column; gap: 0.5rem;">
+          <a href="/" class="btn btn-primary btn-block">Create New Ballot</a>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>Results are cryptographically verifiable by anyone.</p>
+    </footer>
+  </div>
+
+  <!-- PWA Scripts -->
+  <script src="/js/offline-queue.js"></script>
+  <script src="/js/notifications.js"></script>
+  <script src="/js/pwa.js"></script>
+
+  <!-- App Scripts -->
+  <script src="/js/api.js"></script>
+  <script>
+    // Get ballot ID from URL
+    const pathParts = window.location.pathname.split('/');
+    const ballotId = pathParts[pathParts.length - 1];
+
+    async function loadResults() {
+      const loadingCard = document.getElementById('loading-card');
+      const errorCard = document.getElementById('error-card');
+      const hiddenCard = document.getElementById('hidden-card');
+      const resultsCard = document.getElementById('results-card');
+      const verificationCard = document.getElementById('verification-card');
+      const attestationCard = document.getElementById('attestation-card');
+      const voteAttestationsCard = document.getElementById('vote-attestations-card');
+      const exportCard = document.getElementById('export-card');
+      const actionsCard = document.getElementById('actions-card');
+
+      try {
+        // Get ballot info
+        const ballot = await api.getBallot(ballotId);
+
+        // Try to get results
+        let results;
+        try {
+          results = await api.getResults(ballotId);
+        } catch (resultsError) {
+          // Check if results are hidden (coercion resistance)
+          if (resultsError.code === 'RESULTS_HIDDEN') {
+            loadingCard.classList.add('hidden');
+            showHiddenState(ballot, resultsError);
+            return;
+          }
+          throw resultsError;
+        }
+
+        // Hide loading
+        loadingCard.classList.add('hidden');
+
+        // Set ballot info
+        document.getElementById('ballot-question').textContent = ballot.question;
+
+        const statusEl = document.getElementById('ballot-status');
+        statusEl.textContent = ballot.status;
+        statusEl.className = 'badge badge-' + ballot.status;
+
+        // Render results
+        renderResults(results, ballot);
+
+        // Show cards
+        resultsCard.classList.remove('hidden');
+        actionsCard.classList.remove('hidden');
+
+        // Set up export buttons
+        document.getElementById('export-json-btn').href = api.getExportJsonUrl(ballotId);
+        document.getElementById('export-csv-btn').href = api.getExportCsvUrl(ballotId);
+        exportCard.classList.remove('hidden');
+
+        // Get verification report
+        try {
+          const report = await api.getVerificationReport(ballotId);
+          renderVerification(report);
+          verificationCard.classList.remove('hidden');
+
+          if (report.result?.attestation) {
+            renderAttestation(report.result.attestation);
+            attestationCard.classList.remove('hidden');
+          }
+
+          // Render individual vote attestations
+          if (report.votes?.total > 0) {
+            renderVoteAttestations(report);
+            voteAttestationsCard.classList.remove('hidden');
+          }
+        } catch (e) {
+          console.log('Verification not available yet');
+        }
+
+      } catch (error) {
+        loadingCard.classList.add('hidden');
+        errorCard.classList.remove('hidden');
+        document.getElementById('error-message').textContent = error.message;
+      }
+    }
+
+    function showHiddenState(ballot, errorInfo) {
+      const hiddenCard = document.getElementById('hidden-card');
+
+      document.getElementById('hidden-question').textContent = ballot.question;
+
+      const statusEl = document.getElementById('hidden-status');
+      statusEl.textContent = ballot.status;
+      statusEl.className = 'badge badge-' + ballot.status;
+
+      // Set reason based on status
+      const reasonEl = document.getElementById('hidden-reason');
+      if (ballot.status === 'voting') {
+        reasonEl.textContent = 'Voting is still in progress. Results will be available after the reveal phase ends.';
+      } else if (ballot.status === 'revealing') {
+        reasonEl.textContent = 'The reveal phase is in progress. Results will be available once it ends.';
+      } else {
+        reasonEl.textContent = 'Results are not yet available.';
+      }
+
+      // Show deadline
+      const deadlineEl = document.getElementById('hidden-deadline');
+      if (ballot.revealDeadline) {
+        const deadline = new Date(ballot.revealDeadline);
+        deadlineEl.textContent = `Results available after: ${deadline.toLocaleString()}`;
+      }
+
+      // Set link to ballot
+      document.getElementById('hidden-vote-link').href = `/b/${ballotId}`;
+
+      hiddenCard.classList.remove('hidden');
+    }
+
+    function renderResults(results, ballot) {
+      const container = document.getElementById('results-container');
+      const tally = results.tally || {};
+      const voteType = results.voteType || ballot.voteType?.type || 'single';
+
+      // Show vote type
+      const voteTypeLabels = {
+        single: 'Single Choice',
+        approval: 'Approval Voting',
+        ranked: 'Ranked Choice (IRV)',
+        score: 'Score Voting'
+      };
+
+      const typeLabel = document.createElement('div');
+      typeLabel.className = 'vote-type-label';
+      typeLabel.textContent = voteTypeLabels[voteType] || 'Single Choice';
+
+      // Render based on vote type
+      switch (voteType) {
+        case 'ranked':
+          container.innerHTML = '';
+          container.appendChild(typeLabel);
+          renderRankedResults(container, results, ballot);
+          break;
+        case 'score':
+          container.innerHTML = '';
+          container.appendChild(typeLabel);
+          renderScoreResults(container, results, ballot);
+          break;
+        default:
+          container.innerHTML = '';
+          container.appendChild(typeLabel);
+          renderStandardResults(container, results, ballot);
+      }
+    }
+
+    function renderStandardResults(container, results, ballot) {
+      const tally = results.tally || {};
+      const totalVotes = results.validReveals || 0;
+      const maxVotes = Math.max(...Object.values(tally), 0);
+      const sortedChoices = [...ballot.choices].sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
+
+      const html = sortedChoices.map(choice => {
+        const votes = tally[choice] || 0;
+        const percentage = totalVotes > 0 ? (votes / totalVotes * 100) : 0;
+        const isWinner = votes === maxVotes && maxVotes > 0;
+
+        return `
+          <div class="result-bar-container">
+            <div class="result-label">
+              <span class="result-choice">${escapeHtml(choice)}</span>
+              <span class="result-count">${votes} votes (${percentage.toFixed(1)}%)</span>
+            </div>
+            <div class="result-bar">
+              <div class="result-bar-fill ${isWinner ? 'winner' : ''}" style="width: ${percentage}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.insertAdjacentHTML('beforeend', html);
+    }
+
+    function renderRankedResults(container, results, ballot) {
+      const rounds = results.rankedChoiceRounds || [];
+      const finalTally = results.tally || {};
+
+      // Show final results first
+      const maxVotes = Math.max(...Object.values(finalTally), 0);
+      const sortedChoices = [...ballot.choices].sort((a, b) => (finalTally[b] || 0) - (finalTally[a] || 0));
+      const totalInFinal = Object.values(finalTally).reduce((sum, v) => sum + v, 0);
+
+      let html = '<h4 style="margin: 1rem 0 0.5rem;">Final Result</h4>';
+      html += sortedChoices.map(choice => {
+        const votes = finalTally[choice] || 0;
+        const percentage = totalInFinal > 0 ? (votes / totalInFinal * 100) : 0;
+        const isWinner = votes === maxVotes && maxVotes > 0;
+
+        return `
+          <div class="result-bar-container">
+            <div class="result-label">
+              <span class="result-choice">${escapeHtml(choice)}</span>
+              <span class="result-count">${votes} votes (${percentage.toFixed(1)}%)</span>
+            </div>
+            <div class="result-bar">
+              <div class="result-bar-fill ${isWinner ? 'winner' : ''}" style="width: ${percentage}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Show round-by-round breakdown
+      if (rounds.length > 1) {
+        html += '<div class="rounds-container"><h4 style="margin: 1.5rem 0 0.5rem;">Round-by-Round</h4>';
+        rounds.forEach(round => {
+          const roundTotal = Object.values(round.votes).reduce((sum, v) => sum + v, 0);
+          html += `
+            <div class="round-card">
+              <div class="round-header">
+                <span class="round-title">Round ${round.round}</span>
+                ${round.eliminated ? `<span class="round-eliminated">Eliminated: ${escapeHtml(round.eliminated)}</span>` : ''}
+              </div>
+              ${Object.entries(round.votes)
+                .sort((a, b) => b[1] - a[1])
+                .map(([choice, votes]) => {
+                  const pct = roundTotal > 0 ? (votes / roundTotal * 100) : 0;
+                  return `<div style="display: flex; justify-content: space-between; font-size: 0.875rem; padding: 0.25rem 0;">
+                    <span>${escapeHtml(choice)}</span>
+                    <span style="color: var(--text-secondary);">${votes} (${pct.toFixed(1)}%)</span>
+                  </div>`;
+                }).join('')}
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      container.insertAdjacentHTML('beforeend', html);
+    }
+
+    function renderScoreResults(container, results, ballot) {
+      const tally = results.tally || {};
+      const averageScores = results.averageScores || {};
+      const maxScore = Math.max(...Object.values(tally), 0);
+      const maxAvg = Math.max(...Object.values(averageScores), 0);
+      const sortedChoices = [...ballot.choices].sort((a, b) => (tally[b] || 0) - (tally[a] || 0));
+
+      let html = '<h4 style="margin: 1rem 0 0.5rem;">Total Scores</h4>';
+      html += sortedChoices.map(choice => {
+        const score = tally[choice] || 0;
+        const avg = averageScores[choice] || 0;
+        const percentage = maxScore > 0 ? (score / maxScore * 100) : 0;
+        const isWinner = score === maxScore && maxScore > 0;
+
+        return `
+          <div class="result-bar-container">
+            <div class="result-label">
+              <span class="result-choice">${escapeHtml(choice)}</span>
+              <span class="result-count">${score} pts (avg: ${avg.toFixed(2)})</span>
+            </div>
+            <div class="result-bar">
+              <div class="result-bar-fill ${isWinner ? 'winner' : ''}" style="width: ${percentage}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.insertAdjacentHTML('beforeend', html);
+    }
+
+    function renderVerification(report) {
+      document.getElementById('verify-votes').textContent = report.votes.total;
+      document.getElementById('verify-reveals').textContent = report.reveals.total;
+      document.getElementById('verify-valid').textContent = report.reveals.valid;
+
+      // Integrity checks
+      const checkAttestation = document.getElementById('check-attestation');
+      const checkReveals = document.getElementById('check-reveals');
+      const checkResult = document.getElementById('check-result');
+
+      checkAttestation.className = 'check-item ' + (report.integrity.allVotesAttested ? 'valid' : 'pending');
+      checkReveals.className = 'check-item ' + (report.integrity.allRevealsVerified ? 'valid' : 'invalid');
+      checkResult.className = 'check-item ' + (report.integrity.resultAttested ? 'valid' : 'pending');
+    }
+
+    function renderAttestation(attestation) {
+      const witnessContainer = document.getElementById('witness-attestations');
+      const timestamp = new Date(attestation.timestamp * 1000);
+      const timeStr = timestamp.toLocaleString();
+
+      // Render each witness with 🙌 format
+      const witnessHtml = attestation.witnessIds.map(witnessId => {
+        // Extract domain from witness ID (handle URLs and plain domains)
+        const domain = extractDomain(witnessId);
+        return `
+          <div class="witness-entry">
+            <span class="witness-emoji">🙌</span>
+            <div class="witness-info">
+              <div class="witness-domain">Witnessed by ${escapeHtml(domain)}</div>
+              <div class="witness-time">at ${timeStr}</div>
+            </div>
+            <div class="witness-status">Verified</div>
+          </div>
+        `;
+      }).join('');
+
+      witnessContainer.innerHTML = witnessHtml;
+
+      // Technical details
+      document.getElementById('attestation-hash').value = attestation.hash;
+      document.getElementById('attestation-time').value = timestamp.toISOString();
+
+      // Render signatures
+      const signaturesContainer = document.getElementById('attestation-signatures');
+      if (attestation.signatures && attestation.signatures.length > 0) {
+        const sigsHtml = attestation.signatures.map(sig => `
+          <div class="signature-entry">
+            <div><span class="signature-witness">${escapeHtml(extractDomain(sig.witnessId))}</span></div>
+            <div style="margin-top: 0.25rem;">${escapeHtml(sig.signature.substring(0, 64))}...</div>
+          </div>
+        `).join('');
+        signaturesContainer.innerHTML = sigsHtml;
+      } else {
+        signaturesContainer.innerHTML = attestation.witnessIds.map(id => `
+          <div class="signature-entry">
+            <span class="signature-witness">${escapeHtml(extractDomain(id))}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    function renderVoteAttestations(report) {
+      const voteCount = report.votes?.total || 0;
+      const attestedCount = report.integrity?.allVotesAttested ? voteCount : 0;
+
+      document.getElementById('attested-vote-count').textContent =
+        `${attestedCount}/${voteCount} attested`;
+
+      const listContainer = document.getElementById('vote-attestations-list');
+
+      // Get vote nullifiers
+      const nullifiers = report.votes?.nullifiers || [];
+
+      if (nullifiers.length === 0) {
+        listContainer.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No votes recorded</p>';
+        return;
+      }
+
+      // Render each vote with its attestation status
+      const votesHtml = nullifiers.map((nullifier, index) => {
+        // In a real implementation, we'd fetch individual vote attestation data
+        // For now, we show the nullifier and general attestation status
+        const isAttested = report.integrity?.allVotesAttested;
+        const statusClass = isAttested ? 'attested' : 'pending';
+        const statusText = isAttested ? 'Attested' : 'Pending';
+
+        return `
+          <div class="vote-attestation-entry">
+            <div class="vote-attestation-info">
+              <div>Vote #${index + 1}</div>
+              <div class="vote-nullifier" title="${escapeHtml(nullifier)}">${escapeHtml(nullifier.substring(0, 16))}...</div>
+            </div>
+            <div class="vote-attestation-status ${statusClass}">
+              ${statusText}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      listContainer.innerHTML = votesHtml;
+    }
+
+    function extractDomain(witnessId) {
+      // Handle URLs like http://localhost:8080 or https://witness.example.com
+      try {
+        if (witnessId.startsWith('http://') || witnessId.startsWith('https://')) {
+          const url = new URL(witnessId);
+          return url.host;
+        }
+      } catch (e) {
+        // Not a valid URL, return as-is
+      }
+      // Return the ID as-is if it's not a URL
+      return witnessId;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Refresh button handler
+    document.getElementById('refresh-btn')?.addEventListener('click', () => location.reload());
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', loadResults);
+  </script>
+</body>
+</html>

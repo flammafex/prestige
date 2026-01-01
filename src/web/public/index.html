@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Prestige - Anonymous Verifiable Voting</title>
+  <meta name="description" content="Secret ballot. Public proof. Create anonymous, verifiable polls.">
+
+  <!-- PWA Meta Tags -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prestige">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Prestige">
+  <meta name="msapplication-TileColor" content="#0a0a0f">
+  <meta name="msapplication-tap-highlight" content="no">
+
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/icon-152.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png">
+  <link rel="apple-touch-icon" sizes="167x167" href="/icon-167.png">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <noscript>
+    <div style="padding: 2rem; text-align: center; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+      <h1 style="margin-bottom: 1rem;">JavaScript Required</h1>
+      <p style="max-width: 400px; line-height: 1.6;">Prestige requires JavaScript for cryptographic operations and anonymous voting. Please enable JavaScript to continue.</p>
+    </div>
+  </noscript>
+  <!-- Skip link for keyboard navigation -->
+  <a href="#main-content" class="skip-link" style="position: absolute; left: -9999px; top: 0; z-index: 999; padding: 1rem; background: var(--accent); color: white;">Skip to main content</a>
+  <style>.skip-link:focus { left: 0; }</style>
+  <div class="container">
+    <header>
+      <img src="prestige.webp" width=600>
+      <p class="tagline">Secret ballot. Public proof.</p>
+    </header>
+
+    <main id="main-content">
+      <!-- Gate Status Banner -->
+      <div id="gate-banner"></div>
+
+      <!-- Create Ballot Form -->
+      <div class="card" id="create-form">
+        <!-- Authorized: show the form -->
+        <div id="create-authorized" class="hidden">
+          <div class="card-header">
+            <h2 class="card-title">Create a Ballot</h2>
+            <p class="card-subtitle">Anonymous voting with cryptographic verification</p>
+          </div>
+
+          <form id="ballot-form">
+            <div class="form-group">
+              <label for="question">Question</label>
+              <textarea
+                id="question"
+                name="question"
+                placeholder="What should we decide?"
+                required
+                maxlength="500"
+              ></textarea>
+              <p class="hint">Max 500 characters</p>
+            </div>
+
+            <div class="form-group">
+              <label>Choices</label>
+              <div class="choices-container" id="choices-container">
+                <div class="choice-input-row">
+                  <input type="text" placeholder="Option 1" required>
+                  <button type="button" class="btn btn-remove" data-action="remove-choice">-</button>
+                </div>
+                <div class="choice-input-row">
+                  <input type="text" placeholder="Option 2" required>
+                  <button type="button" class="btn btn-remove" data-action="remove-choice">-</button>
+                </div>
+              </div>
+              <button type="button" class="btn btn-secondary btn-add-choice" id="add-choice-btn">
+                + Add Choice
+              </button>
+              <p class="hint">Minimum 2 choices, maximum 20</p>
+            </div>
+
+            <div class="form-group">
+              <label for="vote-type">Voting Method</label>
+              <select id="vote-type" name="vote-type">
+                <option value="single">Single Choice - Pick one option</option>
+                <option value="approval">Approval - Vote for all you approve</option>
+                <option value="ranked">Ranked Choice (IRV) - Rank in preference order</option>
+                <option value="score">Score - Rate each option</option>
+              </select>
+              <p class="hint">Select how voters will cast their votes</p>
+            </div>
+
+            <!-- Score voting options -->
+            <div class="form-group hidden" id="score-options">
+              <label>Score Range</label>
+              <div style="display: flex; gap: 1rem;">
+                <div style="flex: 1;">
+                  <label for="min-score" style="font-size: 0.875rem; color: var(--text-secondary);">Min</label>
+                  <input type="number" id="min-score" value="0" min="0" max="100">
+                </div>
+                <div style="flex: 1;">
+                  <label for="max-score" style="font-size: 0.875rem; color: var(--text-secondary);">Max</label>
+                  <input type="number" id="max-score" value="10" min="1" max="100">
+                </div>
+              </div>
+            </div>
+
+            <!-- Ranked choice options -->
+            <div class="form-group hidden" id="ranked-options">
+              <label>Ranking Requirements</label>
+              <div style="display: flex; gap: 1rem;">
+                <div style="flex: 1;">
+                  <label for="min-rankings" style="font-size: 0.875rem; color: var(--text-secondary);">Min Rankings</label>
+                  <input type="number" id="min-rankings" value="1" min="1">
+                </div>
+                <div style="flex: 1;">
+                  <label for="max-rankings" style="font-size: 0.875rem; color: var(--text-secondary);">Max Rankings (optional)</label>
+                  <input type="number" id="max-rankings" placeholder="All">
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="duration">Voting Duration (minutes)</label>
+              <input
+                type="number"
+                id="duration"
+                name="duration"
+                value="60"
+                min="1"
+                max="43200"
+              >
+              <p class="hint">How long should voting be open? (1440 = 24 hours)</p>
+            </div>
+
+            <div class="form-group">
+              <label for="reveal-window">Reveal Window (minutes)</label>
+              <input
+                type="number"
+                id="reveal-window"
+                name="reveal-window"
+                value="60"
+                min="1"
+                max="10080"
+              >
+              <p class="hint">Time for voters to reveal after voting ends (1440 = 24 hours)</p>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block" id="create-btn">
+              Create Ballot
+            </button>
+          </form>
+        </div>
+
+        <!-- Not authorized: show message -->
+        <div id="create-unauthorized" class="hidden">
+          <div class="card-header">
+            <h2 class="card-title">Create a Ballot</h2>
+          </div>
+          <div class="alert alert-info" id="create-unauthorized-reason">
+            You are not authorized to create ballots on this instance.
+          </div>
+        </div>
+      </div>
+
+      <!-- Success State -->
+      <div class="card hidden" id="success-card">
+        <div class="card-header">
+          <h2 class="card-title">Ballot Created!</h2>
+          <p class="card-subtitle">Share this link with voters</p>
+        </div>
+
+        <div class="form-group">
+          <div class="share-url">
+            <input type="text" id="share-url" readonly>
+            <button type="button" class="btn btn-secondary btn-copy" id="copy-url-btn">
+              Copy
+            </button>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <a href="#" id="view-ballot-btn" class="btn btn-primary">View Ballot</a>
+          <button type="button" class="btn btn-secondary" id="create-another-btn">
+            Create Another
+          </button>
+        </div>
+      </div>
+
+      <!-- Recent Ballots -->
+      <div class="card" id="recent-ballots">
+        <div class="card-header">
+          <h2 class="card-title">Recent Ballots</h2>
+        </div>
+        <div id="ballots-list">
+          <div class="loading">
+            <div class="spinner"></div>
+            Loading...
+          </div>
+        </div>
+      </div>
+
+      <!-- Privacy Tips -->
+      <div class="card" id="privacy-tips">
+        <details class="privacy-section">
+          <summary class="privacy-header">
+            <span>🔒 Privacy Tips for Anonymous Voting</span>
+          </summary>
+
+          <div class="privacy-content">
+            <div class="privacy-tip">
+              <h4>🧅 Use Tor Browser</h4>
+              <p>For maximum anonymity, access Prestige through <a href="https://www.torproject.org/download/" target="_blank" rel="noopener">Tor Browser</a>. This hides your IP address and location from the voting server.</p>
+              <ul>
+                <li>Download from the official Tor Project website only</li>
+                <li>Keep the security slider at "Safest" for high-stakes votes</li>
+                <li>Don't resize the browser window (fingerprinting)</li>
+              </ul>
+            </div>
+
+            <div class="privacy-tip">
+              <h4>🛡️ Use a VPN</h4>
+              <p>If Tor is too slow or blocked, a reputable VPN provides good privacy. Consider:</p>
+              <ul>
+                <li><strong>Mullvad VPN</strong> - No account required, accepts cash/crypto</li>
+                <li><strong>ProtonVPN</strong> - Free tier available, Swiss privacy laws</li>
+                <li><strong>IVPN</strong> - Audited, no-logs policy verified</li>
+              </ul>
+              <p class="privacy-note">Avoid free VPNs - they often log and sell your data.</p>
+            </div>
+
+            <div class="privacy-tip">
+              <h4>📱 Device Privacy</h4>
+              <ul>
+                <li>Use a private/incognito browser window</li>
+                <li>Clear cookies and site data after voting</li>
+                <li>Consider using a separate device or VM for sensitive votes</li>
+                <li>Disable browser extensions that may track you</li>
+              </ul>
+            </div>
+
+            <div class="privacy-tip">
+              <h4>⏰ Timing Considerations</h4>
+              <ul>
+                <li>Don't vote immediately after receiving the ballot link</li>
+                <li>Space out your vote and reveal to avoid timing correlation</li>
+                <li>If using Enhanced Privacy Mode, the server adds random delays automatically</li>
+              </ul>
+            </div>
+
+            <div class="privacy-tip">
+              <h4>🔐 For High-Stakes Voting</h4>
+              <p>When voting on sensitive issues (whistleblower protections, union votes, etc.):</p>
+              <ul>
+                <li>Use Tor over VPN for layered protection</li>
+                <li>Vote from a public WiFi network (library, cafe)</li>
+                <li>Use a fresh browser profile with no extensions</li>
+                <li>Never discuss your vote on the same network</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+
+        <style>
+          .privacy-section summary {
+            cursor: pointer;
+            font-weight: 600;
+            padding: 0.5rem 0;
+            list-style: none;
+          }
+          .privacy-section summary::-webkit-details-marker {
+            display: none;
+          }
+          .privacy-section summary::before {
+            content: "▶ ";
+            display: inline-block;
+            transition: transform 0.2s;
+          }
+          .privacy-section[open] summary::before {
+            transform: rotate(90deg);
+          }
+          .privacy-content {
+            padding-top: 1rem;
+          }
+          .privacy-tip {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+          }
+          .privacy-tip:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+          }
+          .privacy-tip h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1rem;
+          }
+          .privacy-tip p {
+            margin: 0 0 0.5rem 0;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+          }
+          .privacy-tip ul {
+            margin: 0.5rem 0;
+            padding-left: 1.25rem;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+          }
+          .privacy-tip li {
+            margin-bottom: 0.25rem;
+          }
+          .privacy-tip a {
+            color: var(--accent);
+          }
+          .privacy-note {
+            font-style: italic;
+            color: var(--text-muted) !important;
+            font-size: 0.75rem !important;
+          }
+        </style>
+      </div>
+    </main>
+
+    <footer>
+      <p>Prestige - Part of <a href="#">SophiaDOS</a></p>
+      <p>Your vote is secret. The results are verifiable.</p>
+      <button id="install-btn" class="btn btn-secondary hidden" style="margin-top: 1rem;">
+        Install App
+      </button>
+    </footer>
+  </div>
+
+  <!-- PWA Scripts -->
+  <script src="/js/offline-queue.js"></script>
+  <script src="/js/notifications.js"></script>
+  <script src="/js/pwa.js"></script>
+
+  <!-- App Scripts -->
+  <script src="/js/api.js"></script>
+  <script src="/js/identity.js"></script>
+  <script src="/js/gates.js"></script>
+  <script>
+    // Choice management
+    let choiceCount = 2;
+
+    function addChoice() {
+      if (choiceCount >= 20) return;
+      choiceCount++;
+
+      const container = document.getElementById('choices-container');
+      const row = document.createElement('div');
+      row.className = 'choice-input-row';
+      row.innerHTML = `
+        <input type="text" placeholder="Option ${choiceCount}" required>
+        <button type="button" class="btn btn-remove" data-action="remove-choice">-</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function removeChoice(btn) {
+      if (choiceCount <= 2) return;
+      choiceCount--;
+      btn.parentElement.remove();
+    }
+
+    // Event delegation for choice removal buttons
+    document.getElementById('choices-container').addEventListener('click', (e) => {
+      if (e.target.dataset.action === 'remove-choice') {
+        removeChoice(e.target);
+      }
+    });
+
+    // Add choice button
+    document.getElementById('add-choice-btn').addEventListener('click', addChoice);
+
+    // Vote type selection handler
+    document.getElementById('vote-type').addEventListener('change', (e) => {
+      const voteType = e.target.value;
+      const scoreOptions = document.getElementById('score-options');
+      const rankedOptions = document.getElementById('ranked-options');
+
+      // Hide all type-specific options
+      scoreOptions.classList.add('hidden');
+      rankedOptions.classList.add('hidden');
+
+      // Show relevant options
+      if (voteType === 'score') {
+        scoreOptions.classList.remove('hidden');
+      } else if (voteType === 'ranked') {
+        rankedOptions.classList.remove('hidden');
+      }
+    });
+
+    // Build vote type config from form
+    function buildVoteTypeConfig() {
+      const voteType = document.getElementById('vote-type').value;
+
+      if (voteType === 'single') {
+        return { type: 'single' };
+      }
+
+      if (voteType === 'approval') {
+        return { type: 'approval' };
+      }
+
+      if (voteType === 'ranked') {
+        const minRankings = parseInt(document.getElementById('min-rankings').value, 10) || 1;
+        const maxRankingsValue = document.getElementById('max-rankings').value;
+        const maxRankings = maxRankingsValue ? parseInt(maxRankingsValue, 10) : undefined;
+
+        return {
+          type: 'ranked',
+          minRankings,
+          ...(maxRankings && { maxRankings })
+        };
+      }
+
+      if (voteType === 'score') {
+        const minScore = parseInt(document.getElementById('min-score').value, 10) || 0;
+        const maxScore = parseInt(document.getElementById('max-score').value, 10) || 10;
+
+        return {
+          type: 'score',
+          minScore,
+          maxScore
+        };
+      }
+
+      return { type: 'single' };
+    }
+
+    // Form submission
+    document.getElementById('ballot-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const btn = document.getElementById('create-btn');
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+
+      try {
+        const question = document.getElementById('question').value;
+        const choiceInputs = document.querySelectorAll('#choices-container input');
+        const choices = Array.from(choiceInputs).map(input => input.value).filter(v => v.trim());
+        const durationMinutes = parseInt(document.getElementById('duration').value, 10);
+        const revealWindowMinutes = parseInt(document.getElementById('reveal-window').value, 10);
+        const voteType = buildVoteTypeConfig();
+
+        const result = await api.createBallot({
+          question,
+          choices,
+          durationMinutes,
+          revealWindowMinutes,
+          voteType,
+        });
+
+        // Show success
+        document.getElementById('create-form').classList.add('hidden');
+        document.getElementById('success-card').classList.remove('hidden');
+        document.getElementById('share-url').value = result.shareUrl;
+        document.getElementById('view-ballot-btn').href = result.shareUrl;
+
+        // Reload ballots list
+        loadRecentBallots();
+      } catch (error) {
+        alert('Error creating ballot: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Ballot';
+      }
+    });
+
+    async function copyShareUrl(event) {
+      const input = document.getElementById('share-url');
+      const btn = event.currentTarget;
+
+      try {
+        await navigator.clipboard.writeText(input.value);
+        btn.textContent = 'Copied!';
+      } catch (error) {
+        // Fallback for older browsers or when clipboard API fails
+        input.select();
+        try {
+          document.execCommand('copy');
+          btn.textContent = 'Copied!';
+        } catch (e) {
+          btn.textContent = 'Failed';
+          console.error('Copy failed:', e);
+        }
+      }
+
+      setTimeout(() => btn.textContent = 'Copy', 2000);
+    }
+
+    function createAnother() {
+      document.getElementById('success-card').classList.add('hidden');
+      document.getElementById('create-form').classList.remove('hidden');
+      document.getElementById('ballot-form').reset();
+
+      // Reset choices
+      const container = document.getElementById('choices-container');
+      container.innerHTML = `
+        <div class="choice-input-row">
+          <input type="text" placeholder="Option 1" required>
+          <button type="button" class="btn btn-remove" data-action="remove-choice">-</button>
+        </div>
+        <div class="choice-input-row">
+          <input type="text" placeholder="Option 2" required>
+          <button type="button" class="btn btn-remove" data-action="remove-choice">-</button>
+        </div>
+      `;
+      choiceCount = 2;
+    }
+
+    // Copy URL button
+    document.getElementById('copy-url-btn').addEventListener('click', copyShareUrl);
+
+    // Create another button
+    document.getElementById('create-another-btn').addEventListener('click', createAnother);
+
+    // Load recent ballots
+    async function loadRecentBallots() {
+      const container = document.getElementById('ballots-list');
+
+      try {
+        const ballots = await api.listBallots({ limit: 10 });
+
+        if (ballots.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-secondary)">No ballots yet. Create one above!</p>';
+          return;
+        }
+
+        container.innerHTML = ballots.map(ballot => {
+          const statusClass = ballot.status === 'voting' ? 'badge-voting' :
+                             ballot.status === 'revealing' ? 'badge-revealing' : 'badge-finalized';
+
+          return `
+            <a href="/b/${ballot.id}" class="choice-item" style="text-decoration: none; color: inherit;">
+              <div class="choice-text">
+                <div style="font-weight: 500; margin-bottom: 0.25rem;">${escapeHtml(ballot.question)}</div>
+                <div style="font-size: 0.75rem; color: var(--text-secondary);">
+                  ${ballot.choices.length} choices
+                </div>
+              </div>
+              <span class="badge ${statusClass}">${ballot.status}</span>
+            </a>
+          `;
+        }).join('');
+      } catch (error) {
+        container.innerHTML = `<p style="color: var(--error)">Error loading ballots: ${error.message}</p>`;
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize gates and check authorization
+    async function initGates() {
+      try {
+        await gates.load();
+        gates.renderBanner('gate-banner');
+
+        if (gates.canCreate()) {
+          document.getElementById('create-authorized').classList.remove('hidden');
+        } else {
+          document.getElementById('create-unauthorized').classList.remove('hidden');
+          document.getElementById('create-unauthorized-reason').textContent =
+            gates.getBallotReason();
+        }
+      } catch (e) {
+        // If gates fail to load, show the form anyway
+        console.error('Failed to load gates:', e);
+        document.getElementById('create-authorized').classList.remove('hidden');
+      }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', async () => {
+      await initIdentity();
+      await initGates();
+      loadRecentBallots();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline - Prestige</title>
+  <meta name="description" content="You are currently offline">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a0a0f">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <style>
+    .offline-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary);
+      border-radius: 50%;
+      color: var(--text-secondary);
+    }
+    .offline-icon svg {
+      width: 40px;
+      height: 40px;
+    }
+    .pending-actions {
+      margin-top: 1.5rem;
+    }
+    .pending-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      background: var(--bg-secondary);
+      border-radius: var(--radius);
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+    }
+    .pending-icon {
+      color: var(--warning);
+    }
+    .retry-btn {
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <img src="prestige.webp" width=600>
+      <p class="tagline">Secret ballot. Public proof.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <div class="offline-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
+          </svg>
+        </div>
+
+        <div class="card-header" style="text-align: center;">
+          <h2 class="card-title">You're Offline</h2>
+          <p class="card-subtitle">Don't worry, your votes are safe</p>
+        </div>
+
+        <div class="alert alert-info">
+          <strong>Offline Mode Active</strong><br>
+          Any votes or reveals you submit will be saved locally and automatically synced when you're back online.
+        </div>
+
+        <div id="pending-section" class="pending-actions hidden">
+          <h4 style="margin-bottom: 0.75rem; color: var(--text-secondary);">Pending Actions</h4>
+          <div id="pending-list"></div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block retry-btn" onclick="checkConnection()">
+          Try Again
+        </button>
+
+        <div style="margin-top: 1rem; text-align: center;">
+          <a href="/" class="btn btn-secondary" style="display: inline-block;">
+            Go to Home (Cached)
+          </a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">What You Can Do Offline</h3>
+        </div>
+
+        <ul style="list-style: none; color: var(--text-secondary);">
+          <li style="padding: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="color: var(--success);">&#10003;</span>
+            View cached ballots
+          </li>
+          <li style="padding: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="color: var(--success);">&#10003;</span>
+            Submit votes (queued for sync)
+          </li>
+          <li style="padding: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="color: var(--success);">&#10003;</span>
+            Submit reveals (queued for sync)
+          </li>
+          <li style="padding: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="color: var(--success);">&#10003;</span>
+            View cached results
+          </li>
+          <li style="padding: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="color: var(--error);">&#10007;</span>
+            Create new ballots
+          </li>
+          <li style="padding: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span style="color: var(--error);">&#10007;</span>
+            See real-time updates
+          </li>
+        </ul>
+      </div>
+    </main>
+
+    <footer>
+      <p>Your vote is secret. The results are verifiable.</p>
+    </footer>
+  </div>
+
+  <script>
+    // Check for pending actions
+    async function loadPendingActions() {
+      try {
+        const db = await openDB();
+        const votes = await getAll(db, 'votes');
+        const reveals = await getAll(db, 'reveals');
+
+        const pendingSection = document.getElementById('pending-section');
+        const pendingList = document.getElementById('pending-list');
+
+        if (votes.length > 0 || reveals.length > 0) {
+          pendingSection.classList.remove('hidden');
+
+          let html = '';
+
+          for (const vote of votes) {
+            html += `
+              <div class="pending-item">
+                <span class="pending-icon">&#9679;</span>
+                <span>Vote on ballot ${vote.data.ballotId.slice(0, 8)}...</span>
+              </div>
+            `;
+          }
+
+          for (const reveal of reveals) {
+            html += `
+              <div class="pending-item">
+                <span class="pending-icon">&#9679;</span>
+                <span>Reveal on ballot ${reveal.data.ballotId.slice(0, 8)}...</span>
+              </div>
+            `;
+          }
+
+          pendingList.innerHTML = html;
+        }
+      } catch (e) {
+        console.log('Could not load pending actions:', e);
+      }
+    }
+
+    // Check connection and redirect if online
+    function checkConnection() {
+      if (navigator.onLine) {
+        window.location.href = '/';
+      } else {
+        alert('Still offline. Please check your connection.');
+      }
+    }
+
+    // Listen for online event
+    window.addEventListener('online', () => {
+      window.location.href = '/';
+    });
+
+    // Simple IndexedDB helpers
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('prestige-offline', 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+      });
+    }
+
+    function getAll(db, storeName) {
+      return new Promise((resolve, reject) => {
+        try {
+          const transaction = db.transaction(storeName, 'readonly');
+          const store = transaction.objectStore(storeName);
+          const request = store.getAll();
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+        } catch (e) {
+          resolve([]);
+        }
+      });
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', loadPendingActions);
+  </script>
+</body>
+</html>
