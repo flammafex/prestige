@@ -43,6 +43,9 @@ export interface FreebirdToken {
   epoch?: number;
 }
 
+// Optional Sybil proof passed to Freebird issuer (format issuer-specific)
+export type FreebirdSybilProof = unknown;
+
 // Optional token used when ballot gate is set to "freebird"
 export interface BallotCreationToken {
   blindedToken: string;
@@ -225,6 +228,10 @@ export interface PrestigeStore {
   savePetitionSignature(signature: PetitionSignature): Promise<void>;
   getPetitionSignatures(ballotId: string): Promise<PetitionSignature[]>;
   hasPetitionSignature(ballotId: string, publicKey: string): Promise<boolean>;
+
+  // Eligibility token spend tracking
+  hasSpentToken(ballotId: string, tokenHash: Hash): Promise<boolean>;
+  markTokenSpent(ballotId: string, tokenHash: Hash): Promise<boolean>;
 }
 
 // Gate types
@@ -352,6 +359,7 @@ export const ErrorCodes = {
   INVALID_REVEAL: 'INVALID_REVEAL',
   INVALID_SIGNATURE: 'INVALID_SIGNATURE',
   INELIGIBLE: 'INELIGIBLE',
+  TOKEN_REUSED: 'TOKEN_REUSED',
   TOO_LATE: 'TOO_LATE',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   // Gate-specific errors

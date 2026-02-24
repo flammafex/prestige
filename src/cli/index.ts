@@ -187,7 +187,7 @@ async function castVote(ballotId?: string) {
     const nullifier = Crypto.generateNullifier(voterSecret, ballotId);
 
     console.log('\nGetting eligibility token...');
-    const proof = await prestige.requestEligibilityToken(ballotId);
+    const proof = await prestige.requestEligibilityToken(ballotId, prestige.identity.publicKey);
 
     console.log('Casting vote...');
     await prestige.castVote({
@@ -495,7 +495,7 @@ async function checkEligibility(ballotId?: string) {
 
       // Try to get token (will fail with reason if ineligible)
       try {
-        await prestige.requestEligibilityToken(ballotId);
+        await prestige.requestEligibilityToken(ballotId, prestige.identity.publicKey);
         console.log('  ✓ You are eligible to vote on this ballot');
       } catch (e: any) {
         console.log(`  ✗ ${e.message}`);

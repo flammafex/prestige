@@ -92,8 +92,12 @@ const api = {
     return this.request('GET', `/api/votes/${ballotId}`);
   },
 
-  async requestToken(ballotId) {
-    return this.request('POST', `/api/token/${ballotId}`);
+  async requestTokenChallenge(ballotId, publicKey) {
+    return this.request('POST', `/api/token/${ballotId}/challenge`, { publicKey });
+  },
+
+  async requestToken(ballotId, auth) {
+    return this.request('POST', `/api/token/${ballotId}`, auth || {});
   },
 
   // ============= Reveal Operations =============

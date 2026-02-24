@@ -13,6 +13,7 @@ import type {
   Vote,
   Ballot,
   FreebirdToken,
+  FreebirdSybilProof,
   WitnessAttestation,
   PrestigeStore,
   CastVoteRequest,
@@ -40,6 +41,7 @@ import {
 interface EligibilityRequest {
   publicKey: string;
   ballotId: string;
+  sybilProof?: FreebirdSybilProof;
   index: number;
 }
 
@@ -139,6 +141,9 @@ export class VoteManager {
       throw new VoteError('You have already voted on this ballot', ErrorCodes.DOUBLE_VOTE);
     }
 
+    // 6b. Prepare replay-protection fingerprint for this eligibility token.
+    const tokenHash = this.hashToken(request.proof);
+
     // 7. Verify Freebird token (eligibility check)
     const tokenValid = await this.freebird.verify(request.proof);
     if (!tokenValid) {
@@ -168,6 +173,13 @@ export class VoteManager {
       proof: request.proof,
       attestation,
     };
+
+    // Atomically claim the token spend before persisting vote.
+    // This prevents concurrent replay of the same eligibility token.
+    const tokenClaimed = await this.store.markTokenSpent(request.ballotId, tokenHash);
+    if (!tokenClaimed) {
+      throw new VoteError('Eligibility token has already been used on this ballot', ErrorCodes.TOKEN_REUSED);
+    }
 
     await this.store.saveVote(vote);
 
@@ -263,13 +275,15 @@ export class VoteManager {
    */
   async requestEligibilityToken(
     ballotId: string,
-    requesterPublicKey: string
+    requesterPublicKey: string,
+    sybilProof?: FreebirdSybilProof
   ): Promise<FreebirdToken> {
     // Use batching if enabled for stronger timing correlation protection
     if (this.eligibilityBatcher) {
       const result = await this.eligibilityBatcher.add({
         publicKey: requesterPublicKey,
         ballotId,
+        sybilProof,
         index: 0, // Will be set by batch processor
       });
 
@@ -285,7 +299,7 @@ export class VoteManager {
 
     // Without batching, use normalized timing if privacy is enabled
     const processRequest = async (): Promise<FreebirdToken> => {
-      return this.processEligibilityRequest(ballotId, requesterPublicKey);
+      return this.processEligibilityRequest(ballotId, requesterPublicKey, sybilProof);
     };
 
     if (this.privacyConfig.enabled && this.privacyConfig.normalizedResponseMs > 0) {
@@ -300,7 +314,8 @@ export class VoteManager {
    */
   private async processEligibilityRequest(
     ballotId: string,
-    requesterPublicKey: string
+    requesterPublicKey: string,
+    sybilProof?: FreebirdSybilProof
   ): Promise<FreebirdToken> {
     const ballot = await this.ballotManager.getBallot(ballotId);
     if (!ballot) {
@@ -336,7 +351,7 @@ export class VoteManager {
     }
 
     // 3. Issue Freebird token (anonymous from here on)
-    return this.freebird.issue(ballotId);
+    return this.freebird.issue(ballotId, { sybilProof });
   }
 
   /**
@@ -353,7 +368,7 @@ export class VoteManager {
 
     for (const req of shuffled) {
       try {
-        const token = await this.processEligibilityRequest(req.ballotId, req.publicKey);
+        const token = await this.processEligibilityRequest(req.ballotId, req.publicKey, req.sybilProof);
         results[req.originalIndex] = { eligible: true, token };
       } catch (error) {
         results[req.originalIndex] = {
@@ -402,6 +417,17 @@ export class VoteManager {
       default:
         return { allowed: false, reason: 'Unknown eligibility type' };
     }
+  }
+
+  private hashToken(token: FreebirdToken): string {
+    return Crypto.hash(
+      token.blindedToken,
+      token.issuerId ?? '',
+      token.issuerPublicKey,
+      token.kid ?? '',
+      String(token.epoch ?? ''),
+      String(token.expiresAt)
+    );
   }
 }
 

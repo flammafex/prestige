@@ -10,7 +10,7 @@
  * 5. Token provides anonymous authorization
  */
 
-import type { FreebirdToken } from '../types.js';
+import type { FreebirdToken, FreebirdSybilProof } from '../types.js';
 import * as voprf from '../../vendor/freebird/voprf.js';
 import type { BlindState } from '../../vendor/freebird/voprf.js';
 
@@ -48,7 +48,7 @@ export interface FreebirdAdapter {
    * Issue a new eligibility token
    * The token proves the holder is eligible to vote without revealing identity
    */
-  issue(context: string): Promise<FreebirdToken>;
+  issue(context: string, options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken>;
 
   /**
    * Verify an eligibility token
@@ -109,7 +109,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
   /**
    * Issue a token via VOPRF protocol
    */
-  async issue(input: string): Promise<FreebirdToken> {
+  async issue(input: string, options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken> {
     await this.init();
 
     const controller = new AbortController();
@@ -133,7 +133,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           blinded_element_b64: voprf.bytesToBase64Url(blinded),
-          sybil_proof: { type: 'none' }, // For MVP - no sybil resistance
+          sybil_proof: options?.sybilProof ?? { type: 'none' }, // MVP fallback when no proof is provided
         }),
         signal: controller.signal,
       });
@@ -246,7 +246,7 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
     this.tokenTTL = options?.tokenTTL ?? 60 * 60 * 1000; // 1 hour default
   }
 
-  async issue(context: string): Promise<FreebirdToken> {
+  async issue(context: string, _options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken> {
     const token: FreebirdToken = {
       blindedToken: `mock-token-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       proof: `mock-proof-${context}`,

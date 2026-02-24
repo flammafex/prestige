@@ -220,6 +220,40 @@ async function markRevealQueued(ballotId) {
   }
 }
 
+/**
+ * Sign a challenge message with the local identity key
+ */
+async function signMessage(message, identityData = null) {
+  let activeIdentity = identityData ?? await getIdentity();
+
+  // Migrate legacy identities so challenge signatures can be verified server-side.
+  if (activeIdentity.scheme !== 'ed25519') {
+    activeIdentity = await generateIdentity();
+    await setValue('identity', activeIdentity);
+  }
+
+  const privateJwk = {
+    kty: 'OKP',
+    crv: 'Ed25519',
+    d: hexToBase64Url(activeIdentity.privateKey),
+    x: hexToBase64Url(activeIdentity.publicKey),
+    key_ops: ['sign'],
+    ext: true,
+  };
+
+  const key = await crypto.subtle.importKey(
+    'jwk',
+    privateJwk,
+    { name: 'Ed25519' },
+    false,
+    ['sign']
+  );
+
+  const encoded = new TextEncoder().encode(message);
+  const signature = await crypto.subtle.sign('Ed25519', key, encoded);
+  return bytesToHex(new Uint8Array(signature));
+}
+
 // ============= Utility Functions =============
 
 function bytesToHex(bytes) {
@@ -253,6 +287,16 @@ function base64UrlToHex(base64Url) {
   return bytesToHex(bytes);
 }
 
+function hexToBase64Url(hex) {
+  const bytes = hexToBytes(hex);
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  const base64 = btoa(binary);
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 /**
  * Initialize identity on page load
  */
@@ -278,6 +322,7 @@ if (typeof window !== 'undefined') {
     markRevealed,
     markVoteSynced,
     markRevealQueued,
+    signMessage,
     initIdentity,
   };
 }

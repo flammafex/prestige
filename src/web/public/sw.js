@@ -297,23 +297,10 @@ async function ensureVotePayload(voteData) {
     throw new Error('Invalid queued vote payload');
   }
 
-  if (voteData.proof) {
-    return voteData;
+  if (!voteData.proof) {
+    throw new Error('Queued vote is missing eligibility proof');
   }
-
-  const tokenResponse = await fetch(`/api/token/${voteData.ballotId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!tokenResponse.ok) {
-    throw new Error('Failed to request eligibility token for queued vote');
-  }
-
-  const proof = await tokenResponse.json();
-  return {
-    ...voteData,
-    proof,
-  };
+  return voteData;
 }
 
 /**

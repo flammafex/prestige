@@ -355,8 +355,12 @@ export class Prestige {
   /**
    * Get eligibility token for voting
    */
-  async requestEligibilityToken(ballotId: string): Promise<import('./types.js').FreebirdToken> {
-    return this.voteManager.requestEligibilityToken(ballotId, this.identity.publicKey);
+  async requestEligibilityToken(
+    ballotId: string,
+    requesterPublicKey: string,
+    sybilProof?: import('./types.js').FreebirdSybilProof
+  ): Promise<import('./types.js').FreebirdToken> {
+    return this.voteManager.requestEligibilityToken(ballotId, requesterPublicKey, sybilProof);
   }
 
   /**

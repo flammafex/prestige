@@ -69,8 +69,8 @@ describe('Crypto', () => {
 
       const signature = Crypto.sign(message, keypair.privateKey);
 
-      // Tamper with signature
-      const tamperedSig = signature.slice(0, -2) + '00';
+      // Tamper with signature deterministically (always changes at least one nibble)
+      const tamperedSig = `${signature[0] === '0' ? '1' : '0'}${signature.slice(1)}`;
       const valid = Crypto.verify(message, tamperedSig, keypair.publicKey);
 
       expect(valid).toBe(false);

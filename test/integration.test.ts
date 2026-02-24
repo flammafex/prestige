@@ -97,7 +97,7 @@ describe('Prestige Integration', () => {
 
       const commitment = prestige.generateCommitment(choice, salt);
       const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-      const proof = await prestige.requestEligibilityToken(ballot.id);
+      const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
       const vote = await prestige.castVote({
         ballotId: ballot.id,
@@ -122,7 +122,7 @@ describe('Prestige Integration', () => {
       const salt = prestige.generateSalt();
       const commitment = prestige.generateCommitment('A', salt);
       const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-      const proof = await prestige.requestEligibilityToken(ballot.id);
+      const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
       // First vote should succeed
       await prestige.castVote({
@@ -133,7 +133,7 @@ describe('Prestige Integration', () => {
       });
 
       // Second vote with same nullifier should fail
-      const proof2 = await prestige.requestEligibilityToken(ballot.id);
+      const proof2 = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
       await expect(
         prestige.castVote({
           ballotId: ballot.id,
@@ -142,6 +142,80 @@ describe('Prestige Integration', () => {
           proof: proof2,
         })
       ).rejects.toThrow('already voted');
+    });
+
+    it('should reject reusing the same eligibility token on a ballot', async () => {
+      const ballot = await prestige.createBallot({
+        question: 'Token replay test',
+        choices: ['A', 'B'],
+        durationMinutes: 60,
+      });
+
+      const voterSecret1 = prestige.generateVoterSecret();
+      const voterSecret2 = prestige.generateVoterSecret();
+      const commitment1 = prestige.generateCommitment('A', prestige.generateSalt());
+      const commitment2 = prestige.generateCommitment('B', prestige.generateSalt());
+      const nullifier1 = prestige.generateNullifier(voterSecret1, ballot.id);
+      const nullifier2 = prestige.generateNullifier(voterSecret2, ballot.id);
+      const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
+
+      await prestige.castVote({
+        ballotId: ballot.id,
+        commitment: commitment1,
+        nullifier: nullifier1,
+        proof,
+      });
+
+      await expect(
+        prestige.castVote({
+          ballotId: ballot.id,
+          commitment: commitment2,
+          nullifier: nullifier2,
+          proof, // same token replayed
+        })
+      ).rejects.toThrow('token has already been used');
+    });
+
+    it('should reject concurrent replay of the same eligibility token', async () => {
+      const ballot = await prestige.createBallot({
+        question: 'Concurrent token replay test',
+        choices: ['A', 'B'],
+        durationMinutes: 60,
+      });
+
+      const voterSecret1 = prestige.generateVoterSecret();
+      const voterSecret2 = prestige.generateVoterSecret();
+      const commitment1 = prestige.generateCommitment('A', prestige.generateSalt());
+      const commitment2 = prestige.generateCommitment('B', prestige.generateSalt());
+      const nullifier1 = prestige.generateNullifier(voterSecret1, ballot.id);
+      const nullifier2 = prestige.generateNullifier(voterSecret2, ballot.id);
+      const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
+
+      const results = await Promise.allSettled([
+        prestige.castVote({
+          ballotId: ballot.id,
+          commitment: commitment1,
+          nullifier: nullifier1,
+          proof,
+        }),
+        prestige.castVote({
+          ballotId: ballot.id,
+          commitment: commitment2,
+          nullifier: nullifier2,
+          proof,
+        }),
+      ]);
+
+      const successes = results.filter(r => r.status === 'fulfilled');
+      const failures = results.filter(r => r.status === 'rejected');
+
+      expect(successes).toHaveLength(1);
+      expect(failures).toHaveLength(1);
+      const replayError = failures[0] as PromiseRejectedResult;
+      expect(String(replayError.reason?.message ?? replayError.reason)).toContain('token has already been used');
+
+      const votes = await prestige.getVotes(ballot.id);
+      expect(votes).toHaveLength(1);
     });
 
     it('should track vote count', async () => {
@@ -157,7 +231,7 @@ describe('Prestige Integration', () => {
         const salt = prestige.generateSalt();
         const commitment = prestige.generateCommitment('A', salt);
         const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-        const proof = await prestige.requestEligibilityToken(ballot.id);
+        const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
         await prestige.castVote({
           ballotId: ballot.id,
@@ -196,7 +270,7 @@ describe('Prestige Integration', () => {
         const salt = prestige.generateSalt();
         const commitment = prestige.generateCommitment(voter.choice, salt);
         const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-        const proof = await prestige.requestEligibilityToken(ballot.id);
+        const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
         await prestige.castVote({
           ballotId: ballot.id,
@@ -257,7 +331,7 @@ describe('Prestige Integration', () => {
       const salt = prestige.generateSalt();
       const commitment = prestige.generateCommitment('A', salt);
       const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-      const proof = await prestige.requestEligibilityToken(ballot.id);
+      const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
       await prestige.castVote({
         ballotId: ballot.id,
@@ -295,7 +369,7 @@ describe('Prestige Integration', () => {
       const salt = prestige.generateSalt();
       const commitment = prestige.generateCommitment('A', salt);
       const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-      const proof = await prestige.requestEligibilityToken(ballot.id);
+      const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
       await prestige.castVote({
         ballotId: ballot.id,
@@ -346,7 +420,7 @@ describe('Prestige Integration', () => {
         const salt = prestige.generateSalt();
         const commitment = prestige.generateCommitment(v.choice, salt);
         const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-        const proof = await prestige.requestEligibilityToken(ballot.id);
+        const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
         await prestige.castVote({
           ballotId: ballot.id,
@@ -404,7 +478,7 @@ describe('Prestige Integration', () => {
       const salt = prestige.generateSalt();
       const commitment = prestige.generateCommitment('A', salt);
       const nullifier = prestige.generateNullifier(voterSecret, ballot.id);
-      const proof = await prestige.requestEligibilityToken(ballot.id);
+      const proof = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
       await prestige.castVote({
         ballotId: ballot.id,
@@ -444,7 +518,7 @@ describe('Prestige Integration', () => {
         eligibility: { type: 'open' },
       });
 
-      const token = await prestige.requestEligibilityToken(ballot.id);
+      const token = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
       expect(token).toBeDefined();
       expect(token.blindedToken).toBeDefined();

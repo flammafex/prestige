@@ -279,35 +279,17 @@ async function syncVotesManually() {
 
 /**
  * Ensure queued vote data has an eligibility proof.
- * Votes queued while offline may need a token when they are replayed.
+ * Tokens are caller-bound, so replay requires a pre-issued proof.
  */
 async function ensureVotePayload(voteData) {
   if (!voteData || !voteData.ballotId) {
     throw new Error('Invalid queued vote payload');
   }
 
-  if (voteData.proof) {
-    return voteData;
+  if (!voteData.proof) {
+    throw new Error('Queued vote is missing eligibility proof');
   }
-
-  let proof;
-  if (window.api && typeof window.api.requestToken === 'function') {
-    proof = await window.api.requestToken(voteData.ballotId);
-  } else {
-    const tokenResponse = await fetch(`/api/token/${voteData.ballotId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!tokenResponse.ok) {
-      throw new Error('Failed to request eligibility token for queued vote');
-    }
-    proof = await tokenResponse.json();
-  }
-
-  return {
-    ...voteData,
-    proof,
-  };
+  return voteData;
 }
 
 /**

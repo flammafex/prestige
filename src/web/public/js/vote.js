@@ -395,6 +395,22 @@ function updateScore(choice, value, index) {
 }
 
 /**
+ * Request a caller-bound eligibility token using signed challenge-response.
+ */
+async function requestSignedEligibilityToken() {
+  const userIdentity = await identity.getIdentity();
+  const challengeResponse = await api.requestTokenChallenge(ballotId, userIdentity.publicKey);
+  const challengeMessage = challengeResponse.challenge || `token:${ballotId}:${challengeResponse.nonce}`;
+  const signature = await identity.signMessage(challengeMessage, userIdentity);
+
+  return api.requestToken(ballotId, {
+    publicKey: userIdentity.publicKey,
+    signature,
+    nonce: challengeResponse.nonce,
+  });
+}
+
+/**
  * Handle vote submission
  */
 async function handleVoteSubmit(e) {
@@ -450,7 +466,7 @@ async function handleVoteSubmit(e) {
     };
 
     // Get eligibility token
-    const proof = await api.requestToken(ballotId);
+    const proof = await requestSignedEligibilityToken();
     queuedVotePayload.proof = proof;
 
     // Cast vote
@@ -471,7 +487,13 @@ async function handleVoteSubmit(e) {
     document.getElementById('stat-votes').textContent = status.voteCount;
 
   } catch (error) {
-    if (queuedVotePayload && localVoteRecord && window.offlineQueue && isOfflineError(error)) {
+    if (
+      queuedVotePayload &&
+      queuedVotePayload.proof &&
+      localVoteRecord &&
+      window.offlineQueue &&
+      isOfflineError(error)
+    ) {
       try {
         await window.offlineQueue.queueVote(queuedVotePayload);
         await identity.saveVoteData(ballotId, {

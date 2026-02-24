@@ -110,6 +110,23 @@ const sensitiveRateLimiter = privacyRateLimiter(
   parseInt(process.env.RATE_LIMIT_REQUESTS || '30', 10), // requests per window
 );
 
+// Short-lived nonce store for token request signatures.
+const TOKEN_CHALLENGE_TTL_MS = parseInt(process.env.TOKEN_CHALLENGE_TTL_MS || '300000', 10);
+const tokenChallenges = new Map<string, { ballotId: string; publicKey: string; expiresAt: number }>();
+
+function cleanupTokenChallenges(): void {
+  const now = Date.now();
+  for (const [nonce, challenge] of tokenChallenges.entries()) {
+    if (challenge.expiresAt <= now) {
+      tokenChallenges.delete(nonce);
+    }
+  }
+}
+
+function buildTokenChallenge(ballotId: string, nonce: string): string {
+  return `token:${ballotId}:${nonce}`;
+}
+
 // Static files
 app.use(express.static(join(__dirname, 'public')));
 
@@ -406,6 +423,60 @@ app.get('/api/votes/:ballotId', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/token/:ballotId/challenge - Issue a one-time challenge nonce for token requests
+ */
+app.post('/api/token/:ballotId/challenge', sensitiveRateLimiter, async (req: Request, res: Response) => {
+  try {
+    // Add timing obfuscation before processing
+    await privacyDelay(privacyConfig);
+
+    const { publicKey } = req.body ?? {};
+    if (!publicKey) {
+      res.status(400).json({ error: 'publicKey is required', code: 'VALIDATION_ERROR' });
+      return;
+    }
+    if (!Crypto.isValidPublicKey(publicKey)) {
+      res.status(400).json({ error: 'Invalid publicKey format', code: 'VALIDATION_ERROR' });
+      return;
+    }
+
+    const ballot = await prestige.getBallot(req.params.ballotId);
+    if (!ballot) {
+      res.status(404).json({ error: 'Ballot not found', code: 'BALLOT_NOT_FOUND' });
+      return;
+    }
+
+    cleanupTokenChallenges();
+
+    const nonce = Crypto.randomHex(16);
+    const expiresAt = Date.now() + TOKEN_CHALLENGE_TTL_MS;
+    tokenChallenges.set(nonce, {
+      ballotId: req.params.ballotId,
+      publicKey,
+      expiresAt,
+    });
+
+    // Add timing obfuscation after processing
+    await privacyDelay(privacyConfig);
+
+    res.json({
+      nonce,
+      challenge: buildTokenChallenge(req.params.ballotId, nonce),
+      expiresAt,
+    });
+  } catch (error: any) {
+    // Still add delay on error to prevent timing attacks
+    await privacyDelay(privacyConfig);
+
+    console.error('Error issuing token challenge:', error);
+    res.status(error.statusCode ?? 500).json({
+      error: error.message,
+      code: error.code,
+    });
+  }
+});
+
+/**
  * POST /api/token/:ballotId - Request eligibility token
  * Rate limited and timing-obfuscated for privacy
  */
@@ -414,7 +485,50 @@ app.post('/api/token/:ballotId', sensitiveRateLimiter, async (req: Request, res:
     // Add timing obfuscation before processing
     await privacyDelay(privacyConfig);
 
-    const token = await prestige.requestEligibilityToken(req.params.ballotId);
+    const {
+      publicKey,
+      signature,
+      nonce,
+      sybilProof,
+    } = req.body ?? {};
+
+    if (!publicKey || !signature || !nonce) {
+      res.status(400).json({
+        error: 'publicKey, signature, and nonce are required',
+        code: 'VALIDATION_ERROR',
+      });
+      return;
+    }
+    if (!Crypto.isValidPublicKey(publicKey)) {
+      res.status(400).json({ error: 'Invalid publicKey format', code: 'VALIDATION_ERROR' });
+      return;
+    }
+
+    cleanupTokenChallenges();
+    const challenge = tokenChallenges.get(nonce);
+    if (!challenge) {
+      res.status(401).json({ error: 'Invalid or expired nonce', code: 'INVALID_CHALLENGE' });
+      return;
+    }
+    if (challenge.ballotId !== req.params.ballotId || challenge.publicKey !== publicKey) {
+      tokenChallenges.delete(nonce);
+      res.status(401).json({ error: 'Challenge does not match request', code: 'INVALID_CHALLENGE' });
+      return;
+    }
+
+    const message = buildTokenChallenge(req.params.ballotId, nonce);
+    const signatureValid = Crypto.verify(message, signature, publicKey);
+    tokenChallenges.delete(nonce); // one-time nonce regardless of verification result
+    if (!signatureValid) {
+      res.status(401).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
+      return;
+    }
+
+    const token = await prestige.requestEligibilityToken(
+      req.params.ballotId,
+      publicKey,
+      sybilProof
+    );
 
     // Add timing obfuscation after processing
     await privacyDelay(privacyConfig);

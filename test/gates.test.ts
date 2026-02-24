@@ -444,7 +444,7 @@ describe('Gate System', () => {
         });
 
         await expect(
-          prestige.requestEligibilityToken(ballot.id)
+          prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey)
         ).rejects.toThrow('petition');
       });
 

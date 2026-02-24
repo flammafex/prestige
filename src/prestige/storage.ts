@@ -100,6 +100,17 @@ export class SQLiteStore implements PrestigeStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_petition_signatures_ballot ON petition_signatures(ballot_id);
+
+      CREATE TABLE IF NOT EXISTS spent_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ballot_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+        FOREIGN KEY (ballot_id) REFERENCES ballots(id),
+        UNIQUE(ballot_id, token_hash)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_spent_tokens_ballot ON spent_tokens(ballot_id);
     `);
   }
 
@@ -314,6 +325,24 @@ export class SQLiteStore implements PrestigeStore {
     return row !== undefined;
   }
 
+  async hasSpentToken(ballotId: string, tokenHash: Hash): Promise<boolean> {
+    const stmt = this.db.prepare(
+      'SELECT 1 FROM spent_tokens WHERE ballot_id = ? AND token_hash = ?'
+    );
+    const row = stmt.get(ballotId, tokenHash);
+    return row !== undefined;
+  }
+
+  async markTokenSpent(ballotId: string, tokenHash: Hash): Promise<boolean> {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO spent_tokens
+      (ballot_id, token_hash)
+      VALUES (?, ?)
+    `);
+    const result = stmt.run(ballotId, tokenHash);
+    return result.changes > 0;
+  }
+
   // Utilities
 
   private rowToBallot(row: BallotRow): Ballot {
@@ -355,6 +384,7 @@ export class InMemoryStore implements PrestigeStore {
   private reveals = new Map<string, Reveal[]>();
   private results = new Map<string, Result>();
   private petitionSignatures = new Map<string, PetitionSignature[]>();
+  private spentTokens = new Map<string, Set<Hash>>();
 
   async saveBallot(ballot: Ballot): Promise<void> {
     this.ballots.set(ballot.id, ballot);
@@ -454,12 +484,28 @@ export class InMemoryStore implements PrestigeStore {
     return signatures.some(s => s.publicKey === publicKey);
   }
 
+  async hasSpentToken(ballotId: string, tokenHash: Hash): Promise<boolean> {
+    const spent = this.spentTokens.get(ballotId);
+    return spent ? spent.has(tokenHash) : false;
+  }
+
+  async markTokenSpent(ballotId: string, tokenHash: Hash): Promise<boolean> {
+    const spent = this.spentTokens.get(ballotId) ?? new Set<Hash>();
+    if (spent.has(tokenHash)) {
+      return false;
+    }
+    spent.add(tokenHash);
+    this.spentTokens.set(ballotId, spent);
+    return true;
+  }
+
   clear(): void {
     this.ballots.clear();
     this.votes.clear();
     this.reveals.clear();
     this.results.clear();
     this.petitionSignatures.clear();
+    this.spentTokens.clear();
   }
 }
 
