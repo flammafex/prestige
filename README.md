@@ -3,8 +3,8 @@
 ## Features
 
 - **Ballot Secrecy**: No one learns how anyone voted (Freebird unlinkability)
-- **Eligibility**: Only authorized voters can vote (Freebird tokens)
-- **No Double Voting**: One vote per eligible voter per ballot (nullifiers)
+- **Eligibility**: Only authorized voters can vote (caller-signed Freebird token requests)
+- **No Double Voting**: One vote per eligible voter per ballot (nullifiers + one-time token spend tracking)
 - **Verifiability**: Anyone can verify the tally is correct (public reveals + commitments)
 - **Coercion Resistance**: Commit-reveal scheme prevents strategic voting
 - **Configurable Gates**: Pluggable mechanisms for ballot creation and voter eligibility
@@ -77,8 +77,15 @@ When using `BALLOT_GATE=petition`, a nested proposal gate controls who can open 
 ### Eligibility Hierarchy
 
 ```
-Voter requests eligibility token
+Voter requests token challenge (publicKey)
         │
+        ▼
+┌───────────────────────┐
+│ Signed Challenge      │ ── Sign token:{ballotId}:{nonce}
+│ (publicKey + signature│    with local Ed25519 identity
+│  + nonce)             │
+└───────────────────────┘
+        │ valid
         ▼
 ┌───────────────────────┐
 │ Instance Voter Gate   │ ── Can this person vote HERE at all?
@@ -179,9 +186,11 @@ The web UI includes privacy guidance:
 Prestige works as a Progressive Web App (PWA):
 
 - **Install on any device**: Add to home screen on mobile or desktop
-- **Offline support**: Queue votes when offline, sync when connected
+- **Offline support**: Queue votes/reveals when offline, sync when connected
 - **Local notifications**: Get reminded when ballots are ending or reveals are due (requires permission)
 - **Fast loading**: Service worker caching for instant access
+
+Note: vote sync requires a pre-issued eligibility proof. If a vote was queued without `proof`, replay is rejected.
 
 ### Installing
 
@@ -326,10 +335,16 @@ GET  /api/ballot/:id/petition  # Get petition status
 ### Voting
 
 ```
-POST /api/vote                # Cast vote (commitment + nullifier + proof)
-GET  /api/votes/:ballotId     # Get all commitments
-POST /api/token/:ballotId     # Request eligibility token
+POST /api/vote                          # Cast vote (commitment + nullifier + proof)
+GET  /api/votes/:ballotId               # Get all commitments
+POST /api/token/:ballotId/challenge     # Request one-time challenge { publicKey }
+POST /api/token/:ballotId               # Request eligibility token { publicKey, signature, nonce, sybilProof? }
 ```
+
+Token request flow:
+1. Call `/api/token/:ballotId/challenge` with `publicKey`.
+2. Sign `token:{ballotId}:{nonce}` with the same identity key.
+3. Call `/api/token/:ballotId` with `publicKey`, `signature`, and `nonce`.
 
 ### Reveals
 
@@ -426,7 +441,7 @@ type VoteData =
 |----------|-----------|
 | Ballot Secrecy | Freebird VOPRF unlinkability |
 | Eligibility | Freebird token verification |
-| No Double Voting | Nullifier tracking |
+| No Double Voting | Nullifier tracking + one-time token spend tracking |
 | Verifiability | Public commit-reveal scheme |
 | Timestamp Integrity | Witness BFT attestations |
 | Timing Attack Resistance | Random response delays |
@@ -440,6 +455,7 @@ Environment variables:
 # Server
 PORT=3000
 DATA_DIR=/data
+TOKEN_CHALLENGE_TTL_MS=300000            # Token challenge nonce TTL in ms (default: 5 min)
 
 # Freebird (VOPRF Token System)
 FREEBIRD_ISSUER_URL=http://localhost:8081
@@ -479,6 +495,8 @@ PRIVACY_MAX_DELAY_MS=2000                  # Maximum random delay (ms)
 DISABLE_LOGGING=false                      # Disable request logging
 ONION_LOCATION=http://your.onion           # Advertise Tor hidden service
 ```
+
+Token challenges are stored in-memory and expire automatically. They are cleared when the server restarts.
 
 ## Testing
 
