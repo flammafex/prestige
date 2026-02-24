@@ -211,7 +211,7 @@ async function triggerReminder(reminder) {
     case NOTIFICATION_TYPES.RESULTS_READY:
       title = 'Results Are In';
       body = `Results for "${truncate(ballotQuestion, 50)}" are now available`;
-      url = `/results/${ballotId}`;
+      url = `/r/${ballotId}`;
       break;
 
     default:

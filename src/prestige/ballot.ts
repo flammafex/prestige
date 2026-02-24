@@ -335,7 +335,7 @@ export class BallotManager {
     if (config.type === 'allowlist') {
       if (!config.allowlist || config.allowlist.length === 0) {
         throw new PrestigeValidationError(
-          'Allowlist eligibility requires at least one allowed key'
+          'allowlist eligibility requires at least one allowed key'
         );
       }
       for (const key of config.allowlist) {

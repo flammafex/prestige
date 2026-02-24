@@ -36,6 +36,13 @@ interface IssueResponse {
   };
 }
 
+interface IssuerMetadata {
+  issuer_id: string;
+  voprf?: {
+    pubkey?: string;
+  };
+}
+
 export interface FreebirdAdapter {
   /**
    * Issue a new eligibility token
@@ -62,7 +69,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
   private timeout: number;
   private readonly context: Uint8Array;
   private blindStates: Map<string, BlindState> = new Map();
-  private metadata: any = null;
+  private metadata: IssuerMetadata | null = null;
 
   constructor(private config: FreebirdConfig) {
     this.timeout = config.timeout ?? 10000;
@@ -85,8 +92,9 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
       });
 
       if (response.ok) {
-        this.metadata = await response.json();
-        console.log(`[Freebird] Connected to issuer: ${this.metadata.issuer_id || 'unknown'}`);
+        const metadata = await response.json() as IssuerMetadata;
+        this.metadata = metadata;
+        console.log(`[Freebird] Connected to issuer: ${metadata.issuer_id || 'unknown'}`);
       } else {
         throw new FreebirdError(
           `Failed to fetch issuer metadata: ${response.status}`,
@@ -147,6 +155,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
       return {
         blindedToken: data.token,
         proof: data.proof || '',
+        issuerId: this.metadata?.issuer_id,
         issuerPublicKey: this.metadata?.voprf?.pubkey || '',
         expiresAt: data.exp * 1000, // Convert Unix seconds to milliseconds
         kid: data.kid,
@@ -166,21 +175,31 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
       return false;
     }
 
+    if (token.epoch === undefined || !Number.isInteger(token.epoch) || token.epoch < 0) {
+      console.warn('[Freebird] Missing or invalid token epoch');
+      return false;
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
     const url = `${this.config.verifierUrl}/v1/verify`;
 
     try {
+      const issuerId = token.issuerId ?? this.metadata?.issuer_id;
+      if (!issuerId) {
+        console.warn('[Freebird] Missing issuer ID on token');
+        return false;
+      }
+
       console.log(`[Freebird] POST ${url}`);
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token_b64: token.blindedToken,
-          issuer_id: this.metadata?.issuer_id,
-          // Use token's actual expiration and epoch if available
-          exp: token.expiresAt ? Math.floor(token.expiresAt / 1000) : undefined,
-          epoch: token.epoch ?? this.metadata?.current_epoch ?? 0,
+          issuer_id: issuerId,
+          exp: Math.floor(token.expiresAt / 1000),
+          epoch: token.epoch,
         }),
         signal: controller.signal,
       });
@@ -231,8 +250,10 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
     const token: FreebirdToken = {
       blindedToken: `mock-token-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       proof: `mock-proof-${context}`,
+      issuerId: 'mock-issuer:v1',
       issuerPublicKey: 'mock-issuer-public-key',
       expiresAt: Date.now() + this.tokenTTL,
+      epoch: 0,
     };
 
     this.issuedTokens.add(token.blindedToken);

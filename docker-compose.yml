@@ -60,8 +60,8 @@ services:
       - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
     environment:
       - PORT=8081
-      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:-open}
-      - TOKEN_TTL_MINUTES=${TOKEN_TTL:-60}
+      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:-none}
+      - TOKEN_TTL_MIN=${TOKEN_TTL:-60}
       - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-}
     volumes:
       - freebird-issuer-data:/data
@@ -80,7 +80,7 @@ services:
       - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
     environment:
       - PORT=8082
-      - ISSUER_WELLKNOWN_URL=http://freebird-issuer:8081/.well-known/voprf
+      - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
       - REDIS_URL=redis://redis:6379
     depends_on:
       - freebird-issuer

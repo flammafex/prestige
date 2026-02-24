@@ -7,27 +7,17 @@ import type { FreebirdAdapter } from '../../adapters/freebird.js';
 import type { CreateBallotRequest } from '../../types.js';
 import type { BallotGate, GateResult, GateRequirements } from '../types.js';
 
-/**
- * Token verification request for ballot creation
- */
-export interface BallotCreationToken {
-  blindedToken: string;
-  proof: string;
-  issuerPublicKey: string;
-  expiresAt: number;
-}
-
 export class FreebirdBallotGate implements BallotGate {
   readonly type = 'freebird' as const;
 
   constructor(
     private freebird: FreebirdAdapter,
-    private issuerPublicKey: string
+    private issuerId: string
   ) {}
 
   async canCreate(
-    publicKey: string,
-    request?: CreateBallotRequest & { creationToken?: BallotCreationToken }
+    _publicKey: string,
+    request?: CreateBallotRequest
   ): Promise<GateResult> {
     // Require a ballot creation token in the request
     const token = request?.creationToken;
@@ -39,10 +29,17 @@ export class FreebirdBallotGate implements BallotGate {
     }
 
     // Verify the token is from the correct issuer
-    if (token.issuerPublicKey !== this.issuerPublicKey) {
+    if (token.issuerId !== this.issuerId) {
       return {
         allowed: false,
         reason: 'Invalid token issuer',
+      };
+    }
+
+    if (!Number.isInteger(token.epoch) || token.epoch < 0) {
+      return {
+        allowed: false,
+        reason: 'Invalid ballot creation token epoch',
       };
     }
 
@@ -58,8 +55,11 @@ export class FreebirdBallotGate implements BallotGate {
     const valid = await this.freebird.verify({
       blindedToken: token.blindedToken,
       proof: token.proof,
+      issuerId: token.issuerId,
       issuerPublicKey: token.issuerPublicKey,
       expiresAt: token.expiresAt,
+      epoch: token.epoch,
+      kid: token.kid,
     });
 
     return {

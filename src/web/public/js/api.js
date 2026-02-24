@@ -6,11 +6,12 @@
 const api = {
   baseUrl: '',
 
-  async request(method, path, body = null) {
+  async request(method, path, body = null, extraHeaders = {}) {
     const options = {
       method,
       headers: {
         'Content-Type': 'application/json',
+        ...extraHeaders,
       },
     };
 
@@ -33,7 +34,21 @@ const api = {
 
   // ============= Ballot Operations =============
 
-  async createBallot({ question, choices, durationMinutes, revealWindowMinutes, eligibility, voteType }) {
+  async createBallot({
+    question,
+    choices,
+    durationMinutes,
+    revealWindowMinutes,
+    eligibility,
+    voteType,
+    creationToken,
+    creatorPublicKey,
+    creatorSignature,
+  }) {
+    const headers = {};
+    if (creatorPublicKey) headers['X-Public-Key'] = creatorPublicKey;
+    if (creatorSignature) headers['X-Signature'] = creatorSignature;
+
     return this.request('POST', '/api/ballot', {
       question,
       choices,
@@ -41,7 +56,8 @@ const api = {
       revealWindowMinutes,
       eligibility,
       voteType,
-    });
+      creationToken,
+    }, headers);
   },
 
   async getBallot(id) {

@@ -136,12 +136,12 @@
 
         <!-- Just Voted (shown immediately after casting vote) -->
         <div id="just-voted-section" class="hidden">
-          <div class="alert alert-success">
+          <div class="alert alert-success" id="just-voted-message">
             Thank you for voting! Your vote has been recorded.
           </div>
 
           <div id="just-voted-reveal-notice">
-            <p style="margin: 1rem 0; color: var(--text-secondary);">
+            <p id="just-voted-detail" style="margin: 1rem 0; color: var(--text-secondary);">
               After voting ends, you'll need to reveal your choice for it to be counted.
               Your reveal data is stored locally in this browser.
             </p>
@@ -152,6 +152,12 @@
         <div id="voted-section" class="hidden">
           <div class="alert alert-info">
             You have already voted on this ballot.
+          </div>
+
+          <div id="pending-vote-sync" class="hidden">
+            <p style="margin: 1rem 0; color: var(--text-secondary);">
+              Your vote is queued locally and will be synced when you're back online.
+            </p>
           </div>
 
           <div id="pending-reveal" class="hidden">
@@ -180,6 +186,18 @@
           <div id="already-revealed" class="hidden">
             <div class="alert alert-success">
               Your vote has been revealed and will be counted in the final tally.
+            </div>
+          </div>
+
+          <div id="reveal-queued" class="hidden">
+            <div class="alert alert-info">
+              Your reveal has been queued and will sync automatically when you're back online.
+            </div>
+          </div>
+
+          <div id="vote-sync-pending" class="hidden">
+            <div class="alert alert-info">
+              Your vote is still syncing. You'll be able to reveal after the vote sync completes.
             </div>
           </div>
 

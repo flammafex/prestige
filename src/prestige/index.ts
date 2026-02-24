@@ -203,8 +203,11 @@ export class Prestige {
     // Check ballot gate
     const gateResult = await this.ballotGate.canCreate(publicKey, request);
     if (!gateResult.allowed) {
+      const message = gateResult.reason
+        ? `Not authorized: ${gateResult.reason}`
+        : 'Not authorized to create ballots';
       throw new BallotCreationError(
-        gateResult.reason ?? 'Not authorized to create ballots',
+        message,
         ErrorCodes.NOT_AUTHORIZED
       );
     }

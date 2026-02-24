@@ -461,6 +461,7 @@ BALLOT_GATE=open                           # open | owner | delegation | freebir
 BALLOT_GATE_ADMIN_KEY=<public-key>         # For owner gate (defaults to instance key)
 BALLOT_GATE_DELEGATES=key1,key2,key3       # For delegation gate
 BALLOT_GATE_FREEBIRD_ISSUER=<issuer-id>    # For freebird gate
+# Freebird ballot creation token must include issuerId + epoch
 BALLOT_GATE_PETITION_THRESHOLD=10          # For petition gate (default: 10)
 
 # Voter Gate (who can vote on this instance)

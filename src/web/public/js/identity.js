@@ -92,17 +92,40 @@ async function getIdentity() {
  * Generate a new identity keypair
  */
 async function generateIdentity() {
-  // Use Web Crypto for Ed25519-like key generation
-  // Note: In production, use @noble/curves for actual Ed25519
+  // Prefer native Ed25519 so signatures can be verified server-side.
+  try {
+    if (crypto.subtle && typeof crypto.subtle.generateKey === 'function') {
+      const keyPair = await crypto.subtle.generateKey(
+        { name: 'Ed25519' },
+        true,
+        ['sign', 'verify']
+      );
+
+      const privateJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
+      const publicJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+
+      if (privateJwk.d && publicJwk.x) {
+        return {
+          privateKey: base64UrlToHex(privateJwk.d),
+          publicKey: base64UrlToHex(publicJwk.x),
+          created: Date.now(),
+          scheme: 'ed25519',
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('Falling back to legacy identity generation:', error);
+  }
+
+  // Fallback identity format for browsers without Ed25519 support.
   const keyData = new Uint8Array(32);
   crypto.getRandomValues(keyData);
-
   const publicKey = await derivePublicKey(keyData);
-
   return {
     privateKey: bytesToHex(keyData),
-    publicKey: publicKey,
+    publicKey,
     created: Date.now(),
+    scheme: 'legacy',
   };
 }
 
@@ -166,7 +189,33 @@ async function markRevealed(ballotId) {
   const data = await getVoteData(ballotId);
   if (data) {
     data.revealed = true;
+    data.revealQueued = false;
+    data.voteQueued = false;
     data.revealedAt = Date.now();
+    await saveVoteData(ballotId, data);
+  }
+}
+
+/**
+ * Mark vote as synced after an offline queue submission succeeds
+ */
+async function markVoteSynced(ballotId) {
+  const data = await getVoteData(ballotId);
+  if (data) {
+    data.voteQueued = false;
+    data.voteSyncedAt = Date.now();
+    await saveVoteData(ballotId, data);
+  }
+}
+
+/**
+ * Mark reveal as queued while offline
+ */
+async function markRevealQueued(ballotId) {
+  const data = await getVoteData(ballotId);
+  if (data) {
+    data.revealQueued = true;
+    data.revealQueuedAt = Date.now();
     await saveVoteData(ballotId, data);
   }
 }
@@ -193,6 +242,17 @@ function generateRandomHex(length) {
   return bytesToHex(bytes);
 }
 
+function base64UrlToHex(base64Url) {
+  const normalized = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytesToHex(bytes);
+}
+
 /**
  * Initialize identity on page load
  */
@@ -216,6 +276,8 @@ if (typeof window !== 'undefined') {
     saveVoteData,
     hasVotedLocally,
     markRevealed,
+    markVoteSynced,
+    markRevealQueued,
     initIdentity,
   };
 }

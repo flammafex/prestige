@@ -348,6 +348,7 @@
   <!-- App Scripts -->
   <script src="/js/api.js"></script>
   <script src="/js/identity.js"></script>
+  <script src="/js/crypto.js"></script>
   <script src="/js/gates.js"></script>
   <script>
     // Choice management
@@ -454,14 +455,40 @@
         const durationMinutes = parseInt(document.getElementById('duration').value, 10);
         const revealWindowMinutes = parseInt(document.getElementById('reveal-window').value, 10);
         const voteType = buildVoteTypeConfig();
-
-        const result = await api.createBallot({
+        const ballotRequest = {
           question,
           choices,
           durationMinutes,
           revealWindowMinutes,
           voteType,
-        });
+        };
+
+        let signedRequest = { ...ballotRequest };
+        try {
+          const userIdentity = await identity.getIdentity();
+          const payload = JSON.stringify(ballotRequest);
+          const creatorSignature = await prestigeCrypto.sign(payload, userIdentity.privateKey);
+          signedRequest = {
+            ...ballotRequest,
+            creatorPublicKey: userIdentity.publicKey,
+            creatorSignature,
+          };
+        } catch (signError) {
+          console.warn('Unable to sign ballot creation request, submitting unsigned request', signError);
+        }
+
+        let result;
+        try {
+          result = await api.createBallot(signedRequest);
+        } catch (error) {
+          // Retry without signature so older local identities can still create ballots.
+          if (error.code === 'INVALID_SIGNATURE' && signedRequest.creatorPublicKey) {
+            const { creatorSignature, ...fallbackRequest } = signedRequest;
+            result = await api.createBallot(fallbackRequest);
+          } else {
+            throw error;
+          }
+        }
 
         // Show success
         document.getElementById('create-form').classList.add('hidden');
@@ -540,8 +567,14 @@
         }
 
         container.innerHTML = ballots.map(ballot => {
-          const statusClass = ballot.status === 'voting' ? 'badge-voting' :
-                             ballot.status === 'revealing' ? 'badge-revealing' : 'badge-finalized';
+          const statusClassMap = {
+            petition: 'badge-petition',
+            voting: 'badge-voting',
+            revealing: 'badge-revealing',
+            finalized: 'badge-finalized',
+            open: 'badge-voting',
+          };
+          const statusClass = statusClassMap[ballot.status] || 'badge-finalized';
 
           return `
             <a href="/b/${ballot.id}" class="choice-item" style="text-decoration: none; color: inherit;">

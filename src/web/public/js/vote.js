@@ -14,6 +14,10 @@ let rankedChoices = [];           // For ranked choice voting
 let choiceScores = {};            // For score voting
 let timerInterval = null;
 
+function isOfflineError(error) {
+  return !navigator.onLine || error?.code === 'OFFLINE' || error?.status === 503;
+}
+
 /**
  * Initialize the voting page
  */
@@ -315,10 +319,14 @@ function addToRanking(element) {
  */
 function removeFromRanking(index) {
   const choice = rankedChoices[index];
+  if (choice === undefined) return;
   rankedChoices.splice(index, 1);
 
   // Show in available again
-  const availableEl = document.querySelector(`#ranked-available [data-choice="${choice}"]`);
+  const escapedChoice = (window.CSS && typeof window.CSS.escape === 'function')
+    ? window.CSS.escape(choice)
+    : choice.replace(/["\\]/g, '\\$&');
+  const availableEl = document.querySelector(`#ranked-available [data-choice="${escapedChoice}"]`);
   if (availableEl) {
     availableEl.classList.remove('hidden');
   }
@@ -403,6 +411,9 @@ async function handleVoteSubmit(e) {
   btn.disabled = true;
   btn.textContent = 'Casting vote...';
 
+  let queuedVotePayload = null;
+  let localVoteRecord = null;
+
   try {
     // Get voter secret
     const voterSecret = await identity.getVoterSecret(ballotId);
@@ -423,39 +434,60 @@ async function handleVoteSubmit(e) {
     }
 
     const nullifier = await prestigeCrypto.generateNullifier(voterSecret, ballotId);
-
-    // Get eligibility token
-    const proof = await api.requestToken(ballotId);
-
-    // Cast vote
-    await api.castVote({
+    queuedVotePayload = {
       ballotId,
       commitment,
       nullifier,
-      proof,
-    });
-
-    // Save vote data locally for reveal phase
-    await identity.saveVoteData(ballotId, {
+    };
+    localVoteRecord = {
       choice: getPrimaryChoice(voteType),
       salt,
       nullifier,
       commitment,
       voteData: voteType !== 'single' ? voteData : undefined,
-    });
+      voteQueued: false,
+      revealQueued: false,
+    };
+
+    // Get eligibility token
+    const proof = await api.requestToken(ballotId);
+    queuedVotePayload.proof = proof;
+
+    // Cast vote
+    await api.castVote(queuedVotePayload);
+
+    // Save vote data locally for reveal phase
+    await identity.saveVoteData(ballotId, localVoteRecord);
 
     // Mark as just voted (survives page reload within this session)
     sessionStorage.setItem(`justVoted-${ballotId}`, 'true');
 
     // Show "just voted" section (not "already voted")
     document.getElementById('voting-section').classList.add('hidden');
-    showJustVotedSection();
+    showJustVotedSection({ queued: false });
 
     // Update vote count
     const status = await api.getBallotStatus(ballotId);
     document.getElementById('stat-votes').textContent = status.voteCount;
 
   } catch (error) {
+    if (queuedVotePayload && localVoteRecord && window.offlineQueue && isOfflineError(error)) {
+      try {
+        await window.offlineQueue.queueVote(queuedVotePayload);
+        await identity.saveVoteData(ballotId, {
+          ...localVoteRecord,
+          voteQueued: true,
+        });
+        sessionStorage.setItem(`justVoted-${ballotId}`, 'true');
+        document.getElementById('voting-section').classList.add('hidden');
+        showJustVotedSection({ queued: true });
+        btn.textContent = 'Vote Queued';
+        return;
+      } catch (queueError) {
+        console.error('Failed to queue vote:', queueError);
+      }
+    }
+
     alert('Error casting vote: ' + error.message);
     btn.disabled = false;
     btn.textContent = 'Cast Vote';
@@ -544,8 +576,23 @@ function getPrimaryChoice(voteType) {
 /**
  * Show "just voted" section (immediately after casting vote)
  */
-function showJustVotedSection() {
+function showJustVotedSection({ queued = false } = {}) {
   const section = document.getElementById('just-voted-section');
+  const messageEl = document.getElementById('just-voted-message');
+  const detailEl = document.getElementById('just-voted-detail');
+
+  if (messageEl && detailEl) {
+    if (queued) {
+      messageEl.textContent = 'Your vote was saved offline and queued for sync.';
+      detailEl.textContent =
+        "You're offline right now. Your encrypted vote will sync automatically when you're back online.";
+    } else {
+      messageEl.textContent = 'Thank you for voting! Your vote has been recorded.';
+      detailEl.textContent =
+        "After voting ends, you'll need to reveal your choice for it to be counted. Your reveal data is stored locally in this browser.";
+    }
+  }
+
   section.classList.remove('hidden');
 }
 
@@ -554,11 +601,21 @@ function showJustVotedSection() {
  */
 function showVotedSection(voteData) {
   const section = document.getElementById('voted-section');
+  const pendingReveal = document.getElementById('pending-reveal');
+  const pendingVoteSync = document.getElementById('pending-vote-sync');
+
+  pendingReveal.classList.add('hidden');
+  pendingVoteSync.classList.add('hidden');
   section.classList.remove('hidden');
+
+  if (voteData?.voteQueued) {
+    pendingVoteSync.classList.remove('hidden');
+    return;
+  }
 
   // Show pending reveal notice
   if (voteData && !voteData.revealed) {
-    document.getElementById('pending-reveal').classList.remove('hidden');
+    pendingReveal.classList.remove('hidden');
   }
 }
 
@@ -567,25 +624,53 @@ function showVotedSection(voteData) {
  */
 async function showRevealSection(hasVotedLocal, voteData) {
   const section = document.getElementById('reveal-section');
+  const noVoteToReveal = document.getElementById('no-vote-to-reveal');
+  const alreadyRevealed = document.getElementById('already-revealed');
+  const revealQueued = document.getElementById('reveal-queued');
+  const voteSyncPending = document.getElementById('vote-sync-pending');
+  const formContainer = document.getElementById('reveal-form-container');
+  const revealBtn = document.getElementById('reveal-btn');
+
+  noVoteToReveal.classList.add('hidden');
+  alreadyRevealed.classList.add('hidden');
+  revealQueued.classList.add('hidden');
+  voteSyncPending.classList.add('hidden');
+  formContainer.classList.add('hidden');
+
   section.classList.remove('hidden');
 
   if (!hasVotedLocal) {
     // Didn't vote
-    document.getElementById('no-vote-to-reveal').classList.remove('hidden');
+    noVoteToReveal.classList.remove('hidden');
+    return;
+  }
+
+  if (!voteData) {
+    noVoteToReveal.classList.remove('hidden');
+    return;
+  }
+
+  if (voteData?.voteQueued) {
+    voteSyncPending.classList.remove('hidden');
     return;
   }
 
   if (voteData.revealed) {
     // Already revealed
-    document.getElementById('already-revealed').classList.remove('hidden');
+    alreadyRevealed.classList.remove('hidden');
+    return;
+  }
+
+  if (voteData?.revealQueued) {
+    revealQueued.classList.remove('hidden');
     return;
   }
 
   // Show reveal button
-  const formContainer = document.getElementById('reveal-form-container');
   formContainer.classList.remove('hidden');
 
-  document.getElementById('reveal-btn').addEventListener('click', handleRevealSubmit);
+  revealBtn.removeEventListener('click', handleRevealSubmit);
+  revealBtn.addEventListener('click', handleRevealSubmit);
 }
 
 /**
@@ -596,6 +681,8 @@ async function handleRevealSubmit() {
   btn.disabled = true;
   btn.textContent = 'Revealing...';
 
+  let revealRequest = null;
+
   try {
     const localVoteData = await identity.getVoteData(ballotId);
 
@@ -604,7 +691,7 @@ async function handleRevealSubmit() {
     }
 
     // Build reveal request
-    const revealRequest = {
+    revealRequest = {
       ballotId,
       nullifier: localVoteData.nullifier,
       choice: localVoteData.choice,
@@ -624,6 +711,7 @@ async function handleRevealSubmit() {
 
     // Update UI
     document.getElementById('reveal-form-container').classList.add('hidden');
+    document.getElementById('reveal-queued').classList.add('hidden');
     document.getElementById('already-revealed').classList.remove('hidden');
 
     // Update reveal count
@@ -631,6 +719,19 @@ async function handleRevealSubmit() {
     document.getElementById('stat-reveals').textContent = revealStats.totalReveals;
 
   } catch (error) {
+    if (revealRequest && window.offlineQueue && isOfflineError(error)) {
+      try {
+        await window.offlineQueue.queueReveal(revealRequest);
+        await identity.markRevealQueued(ballotId);
+        document.getElementById('reveal-form-container').classList.add('hidden');
+        document.getElementById('reveal-queued').classList.remove('hidden');
+        btn.textContent = 'Reveal Queued';
+        return;
+      } catch (queueError) {
+        console.error('Failed to queue reveal:', queueError);
+      }
+    }
+
     alert('Error revealing vote: ' + error.message);
     btn.disabled = false;
     btn.textContent = 'Reveal My Vote';
@@ -834,6 +935,18 @@ window.addEventListener('beforeunload', () => {
 
 // Event delegation for choices list (handles all vote type interactions)
 document.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('prestige:vote-synced', async (event) => {
+    if (event.detail?.ballotId !== ballotId) return;
+    await identity.markVoteSynced(ballotId);
+    location.reload();
+  });
+
+  window.addEventListener('prestige:reveal-synced', async (event) => {
+    if (event.detail?.ballotId !== ballotId) return;
+    await identity.markRevealed(ballotId);
+    location.reload();
+  });
+
   const choicesList = document.getElementById('choices-list');
   if (choicesList) {
     choicesList.addEventListener('click', (e) => {

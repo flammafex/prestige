@@ -255,10 +255,11 @@ async function syncVotesManually() {
 
   for (const vote of pendingVotes) {
     try {
+      const votePayload = await ensureVotePayload(vote.data);
       const response = await fetch('/api/vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(vote.data),
+        body: JSON.stringify(votePayload),
       });
 
       if (response.ok) {
@@ -267,13 +268,46 @@ async function syncVotesManually() {
 
         // Dispatch event for UI update
         window.dispatchEvent(new CustomEvent('prestige:vote-synced', {
-          detail: { ballotId: vote.data.ballotId }
+          detail: { ballotId: votePayload.ballotId }
         }));
       }
     } catch (e) {
       console.error('[OfflineQueue] Failed to sync vote:', vote.id, e);
     }
   }
+}
+
+/**
+ * Ensure queued vote data has an eligibility proof.
+ * Votes queued while offline may need a token when they are replayed.
+ */
+async function ensureVotePayload(voteData) {
+  if (!voteData || !voteData.ballotId) {
+    throw new Error('Invalid queued vote payload');
+  }
+
+  if (voteData.proof) {
+    return voteData;
+  }
+
+  let proof;
+  if (window.api && typeof window.api.requestToken === 'function') {
+    proof = await window.api.requestToken(voteData.ballotId);
+  } else {
+    const tokenResponse = await fetch(`/api/token/${voteData.ballotId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!tokenResponse.ok) {
+      throw new Error('Failed to request eligibility token for queued vote');
+    }
+    proof = await tokenResponse.json();
+  }
+
+  return {
+    ...voteData,
+    proof,
+  };
 }
 
 /**

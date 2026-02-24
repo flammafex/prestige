@@ -33,12 +33,25 @@ export interface WitnessAttestation {
 export interface FreebirdToken {
   blindedToken: string;
   proof: string;
+  /** Issuer ID that minted this token (e.g. issuer:prod:v1) */
+  issuerId?: string;
   issuerPublicKey: string;
   expiresAt: number;
   /** Key identifier for rotation */
   kid?: string;
   /** Epoch for MAC key derivation */
   epoch?: number;
+}
+
+// Optional token used when ballot gate is set to "freebird"
+export interface BallotCreationToken {
+  blindedToken: string;
+  proof: string;
+  issuerId: string;
+  issuerPublicKey: string;
+  expiresAt: number;
+  epoch: number;
+  kid?: string;
 }
 
 // Ballot eligibility configuration (per-ballot, can restrict but not expand instance voter gate)
@@ -271,6 +284,8 @@ export interface CreateBallotRequest {
   durationMinutes?: number;
   revealWindowMinutes?: number;
   eligibility?: EligibilityConfig;
+  /** Required when ballot gate is set to "freebird" */
+  creationToken?: BallotCreationToken;
   // Voting method configuration
   voteType?: VoteTypeConfig;
 }

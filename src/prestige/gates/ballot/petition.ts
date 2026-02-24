@@ -80,7 +80,7 @@ export class PetitionBallotGate implements BallotGate {
    */
   async getPetitionStatus(ballotId: string): Promise<PetitionStatus | null> {
     const signatures = await this.store.getPetitionSignatures(ballotId);
-    if (!signatures) {
+    if (!signatures || signatures.length === 0) {
       return null;
     }
 
@@ -115,7 +115,7 @@ export class PetitionBallotGate implements BallotGate {
     const canSign = await this.voterGate.canVote(publicKey);
     if (!canSign.allowed) {
       throw new PetitionError(
-        canSign.reason ?? 'Not eligible to sign petitions',
+        'Not eligible to sign petitions',
         'NOT_ELIGIBLE'
       );
     }
@@ -128,6 +128,7 @@ export class PetitionBallotGate implements BallotGate {
 
     // Check if already signed
     const existing = await this.store.getPetitionSignatures(ballotId);
+    const previousCount = existing?.length ?? 0;
     if (existing?.some((s) => s.publicKey === publicKey)) {
       const status = await this.getPetitionStatus(ballotId);
       return { added: false, activated: status?.activated ?? false, status: status! };
@@ -145,7 +146,7 @@ export class PetitionBallotGate implements BallotGate {
 
     // Check if now activated
     const status = await this.getPetitionStatus(ballotId);
-    const wasActivated = (existing?.length ?? 0) < this.threshold;
+    const wasActivated = previousCount < this.threshold;
     const nowActivated = status!.activated;
     const justActivated = wasActivated && nowActivated;
 

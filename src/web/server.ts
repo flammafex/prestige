@@ -201,6 +201,8 @@ app.post('/api/ballot', async (req: Request, res: Response) => {
       durationMinutes: req.body.durationMinutes,
       revealWindowMinutes: req.body.revealWindowMinutes,
       eligibility: req.body.eligibility,
+      creationToken: req.body.creationToken,
+      voteType: req.body.voteType,
     };
 
     // Check for client-side signing
@@ -217,6 +219,10 @@ app.post('/api/ballot', async (req: Request, res: Response) => {
         res.status(401).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
         return;
       }
+      creatorPublicKey = publicKey;
+    } else if (publicKey) {
+      // Best-effort identity attribution when signature isn't available.
+      // This still allows gate checks to apply against the claimed public key.
       creatorPublicKey = publicKey;
     }
 

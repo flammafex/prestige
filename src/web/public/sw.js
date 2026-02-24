@@ -266,10 +266,11 @@ async function syncVotes() {
 
     for (const vote of pendingVotes) {
       try {
+        const votePayload = await ensureVotePayload(vote.data);
         const response = await fetch('/api/vote', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(vote.data),
+          body: JSON.stringify(votePayload),
         });
 
         if (response.ok) {
@@ -277,7 +278,7 @@ async function syncVotes() {
           console.log('[SW] Vote synced:', vote.id);
 
           // Notify the client
-          notifyClients('vote-synced', { ballotId: vote.data.ballotId });
+          notifyClients('vote-synced', { ballotId: votePayload.ballotId });
         }
       } catch (e) {
         console.error('[SW] Failed to sync vote:', vote.id, e);
@@ -286,6 +287,33 @@ async function syncVotes() {
   } catch (error) {
     console.error('[SW] Sync votes failed:', error);
   }
+}
+
+/**
+ * Ensure queued votes include an eligibility proof before replay.
+ */
+async function ensureVotePayload(voteData) {
+  if (!voteData || !voteData.ballotId) {
+    throw new Error('Invalid queued vote payload');
+  }
+
+  if (voteData.proof) {
+    return voteData;
+  }
+
+  const tokenResponse = await fetch(`/api/token/${voteData.ballotId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!tokenResponse.ok) {
+    throw new Error('Failed to request eligibility token for queued vote');
+  }
+
+  const proof = await tokenResponse.json();
+  return {
+    ...voteData,
+    proof,
+  };
 }
 
 /**
