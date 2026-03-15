@@ -21,14 +21,14 @@ export interface FreebirdConfig {
 }
 
 /**
- * Issue response from Freebird API
+ * Issue response from Freebird API (V3)
  */
 interface IssueResponse {
   token: string;
-  proof: string;
+  sig: string;
   kid: string;
   exp: number;
-  epoch: number;
+  issuer_id: string;
   sybil_info?: {
     required: boolean;
     passed: boolean;
@@ -148,18 +148,26 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
 
       const data = await response.json() as IssueResponse;
 
+      // 3. Verify DLEQ proof, unblind, and build V3 redemption token
+      const output = voprf.finalize(
+        state, data.token, this.metadata?.voprf?.pubkey || '', this.context
+      );
+
       // Clean up blind state
       this.blindStates.delete(blindedHex);
 
-      // 3. Return token with server-provided expiration and metadata
+      const sigBytes = base64UrlToBytes(data.sig);
+      const issuerId = data.issuer_id ?? this.metadata?.issuer_id ?? '';
+      const redemptionToken = voprf.buildRedemptionToken(
+        output, data.kid, BigInt(data.exp), issuerId, sigBytes
+      );
+
+      // 4. Return V3 token
       return {
-        blindedToken: data.token,
-        proof: data.proof || '',
-        issuerId: this.metadata?.issuer_id,
-        issuerPublicKey: this.metadata?.voprf?.pubkey || '',
+        tokenValue: voprf.bytesToBase64Url(redemptionToken),
+        issuerId,
         expiresAt: data.exp * 1000, // Convert Unix seconds to milliseconds
         kid: data.kid,
-        epoch: data.epoch,
       };
     } finally {
       clearTimeout(timeoutId);
@@ -175,31 +183,18 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
       return false;
     }
 
-    if (token.epoch === undefined || !Number.isInteger(token.epoch) || token.epoch < 0) {
-      console.warn('[Freebird] Missing or invalid token epoch');
-      return false;
-    }
-
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
     const url = `${this.config.verifierUrl}/v1/verify`;
 
     try {
-      const issuerId = token.issuerId ?? this.metadata?.issuer_id;
-      if (!issuerId) {
-        console.warn('[Freebird] Missing issuer ID on token');
-        return false;
-      }
-
+      // V3 tokens are self-contained — verifier only needs the token itself
       console.log(`[Freebird] POST ${url}`);
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          token_b64: token.blindedToken,
-          issuer_id: issuerId,
-          exp: Math.floor(token.expiresAt / 1000),
-          epoch: token.epoch,
+          token_b64: token.tokenValue,
         }),
         signal: controller.signal,
       });
@@ -248,15 +243,12 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
 
   async issue(context: string, _options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken> {
     const token: FreebirdToken = {
-      blindedToken: `mock-token-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      proof: `mock-proof-${context}`,
+      tokenValue: `mock-token-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       issuerId: 'mock-issuer:v1',
-      issuerPublicKey: 'mock-issuer-public-key',
       expiresAt: Date.now() + this.tokenTTL,
-      epoch: 0,
     };
 
-    this.issuedTokens.add(token.blindedToken);
+    this.issuedTokens.add(token.tokenValue);
     return token;
   }
 
@@ -267,7 +259,7 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
     }
 
     // Check if token was issued by us
-    return this.issuedTokens.has(token.blindedToken);
+    return this.issuedTokens.has(token.tokenValue);
   }
 
   async healthCheck(): Promise<boolean> {
@@ -290,9 +282,14 @@ class FreebirdError extends Error {
   }
 }
 
-// Helper
+// Helpers
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function base64UrlToBytes(base64: string): Uint8Array {
+  const binString = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(binString, (m) => m.codePointAt(0)!);
 }

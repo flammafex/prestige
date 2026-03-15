@@ -21,6 +21,7 @@ const PROOF_LEN = 64; // 32 bytes (c) + 32 bytes (s)
 const RAW_TOKEN_LEN_V0 = COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 130 (legacy, no version byte)
 const RAW_TOKEN_LEN_V1 = TOKEN_VERSION_LEN + COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 131
 const TOKEN_LEN_V2 = RAW_TOKEN_LEN_V1 + TOKEN_SIGNATURE_LEN; // 195 (VOPRF + signature)
+const REDEMPTION_TOKEN_VERSION_V3 = 0x03;
 
 /**
  * Internal state maintained between blinding and unblinding.
@@ -55,11 +56,11 @@ export function blind(
 }
 
 /**
- * Verifies the issuer's response and returns the token.
+ * Verifies the issuer's response, unblinds, and returns the 32-byte PRF output.
  * Corresponds to Rust: Client::finalize
  *
- * Note: In Freebird v0.1.0, the "token" is the (A, B, Proof) tuple itself,
- * not the unblinded value. This enables stateless verification.
+ * Returns the unblinded PRF output: SHA-256("VOPRF-P256-SHA256:Finalize" || ctx || W)
+ * where W = B * r^(-1) is the unblinded evaluated point.
  */
 export function finalize(
   state: BlindState,
@@ -104,26 +105,90 @@ export function finalize(
   const G = p256.ProjectivePoint.BASE;
 
   // 4. Verify DLEQ Proof
-  // Proves that log_G(Q) == log_A(B) (i.e., Issuer used the same private key)
   const isValid = verifyDleq(G, Q, A, B, proofBytes, context);
 
   if (!isValid) {
     throw new Error('VOPRF verification failed: Invalid DLEQ proof from issuer');
   }
 
-  // 5. Return the verified token bytes
-  return fullTokenBytes;
+  // 5. Unblind: W = B * r^(-1)
+  const rInv = P256.invertScalar(state.r);
+  const W = P256.multiply(B, rInv);
+
+  // 6. Derive PRF output from unblinded point
+  const wBytes = P256.encodePoint(W); // SEC1 compressed, 33 bytes
+  const finalizeInput = concatBytes(
+    new TextEncoder().encode('VOPRF-P256-SHA256:Finalize'),
+    context,
+    wBytes,
+  );
+  const output = sha256(finalizeInput); // 32 bytes
+
+  return output;
+}
+
+/**
+ * Builds a V3 redemption token for wire transmission.
+ * Format: [version(1) | output(32) | kid_len(1) | kid(var) | exp(8) | issuer_id_len(1) | issuer_id(var) | sig(64)]
+ */
+export function buildRedemptionToken(
+  output: Uint8Array,  // 32 bytes (PRF output from finalize)
+  kid: string,
+  exp: bigint,         // i64
+  issuerId: string,
+  sig: Uint8Array      // 64 bytes
+): Uint8Array {
+  const kidBytes = new TextEncoder().encode(kid);
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  if (kidBytes.length === 0 || kidBytes.length > 255) throw new Error('kid must be 1-255 bytes');
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) throw new Error('issuer_id must be 1-255 bytes');
+
+  const buf = new Uint8Array(1 + 32 + 1 + kidBytes.length + 8 + 1 + issuerIdBytes.length + 64);
+  let pos = 0;
+  buf[pos++] = REDEMPTION_TOKEN_VERSION_V3;
+  buf.set(output, pos); pos += 32;
+  buf[pos++] = kidBytes.length;
+  buf.set(kidBytes, pos); pos += kidBytes.length;
+  const expView = new DataView(buf.buffer, buf.byteOffset + pos, 8);
+  expView.setBigInt64(0, exp);
+  pos += 8;
+  buf[pos++] = issuerIdBytes.length;
+  buf.set(issuerIdBytes, pos); pos += issuerIdBytes.length;
+  buf.set(sig, pos);
+  return buf;
+}
+
+/**
+ * Parses a V3 redemption token from wire bytes.
+ */
+export function parseRedemptionToken(bytes: Uint8Array): {
+  output: Uint8Array;
+  kid: string;
+  exp: bigint;
+  issuerId: string;
+  sig: Uint8Array;
+} {
+  if (bytes.length < 109 || bytes.length > 512) throw new Error('invalid token length');
+  if (bytes[0] !== REDEMPTION_TOKEN_VERSION_V3) throw new Error('unsupported token version');
+  let pos = 1;
+  const output = bytes.slice(pos, pos + 32); pos += 32;
+  const kidLen = bytes[pos++];
+  if (kidLen === 0 || pos + kidLen > bytes.length) throw new Error('invalid kid_len');
+  const kid = new TextDecoder().decode(bytes.slice(pos, pos + kidLen)); pos += kidLen;
+  if (pos + 8 > bytes.length) throw new Error('truncated');
+  const expView = new DataView(bytes.buffer, bytes.byteOffset + pos, 8);
+  const exp = expView.getBigInt64(0); pos += 8;
+  const issuerIdLen = bytes[pos++];
+  if (issuerIdLen === 0 || pos + issuerIdLen > bytes.length) throw new Error('invalid issuer_id_len');
+  const issuerId = new TextDecoder().decode(bytes.slice(pos, pos + issuerIdLen)); pos += issuerIdLen;
+  if (bytes.length - pos !== 64) throw new Error('invalid sig length');
+  const sig = bytes.slice(pos, pos + 64);
+  return { output, kid, exp, issuerId, sig };
 }
 
 /**
  * Aggregates partial evaluations from multiple servers using Lagrange interpolation.
  * Used in MPC threshold issuance to reconstruct the final evaluated point.
- *
- * Math:
- * - Each server i has a key share k_i and returns B_i = A * k_i
- * - We reconstruct T = A * k where k = Σ(λ_i * k_i)
- * - Since scalar multiplication is linear: T = Σ(λ_i * B_i)
- * - Lagrange coefficient: λ_i = ∏(j≠i) (x_j / (x_j - x_i)) mod N
  *
  * @param partials - Array of partial evaluations with server indices
  * @returns Aggregated evaluated point (encoded)
@@ -133,26 +198,21 @@ export function aggregate(partials: PartialEvaluation[]): Uint8Array {
     throw new Error('Cannot aggregate zero partial evaluations');
   }
 
-  // Special case: single server (non-MPC mode)
   if (partials.length === 1) {
     return partials[0].value;
   }
 
-  // Decode all partial points
   const points = partials.map(p => ({
     index: p.index,
     point: P256.decodePoint(p.value)
   }));
 
-  // Extract indices for Lagrange computation
   const indices = points.map(p => BigInt(p.index));
 
-  // Compute Lagrange coefficients for each index
   const coefficients = indices.map((xi, i) =>
     computeLagrangeCoefficient(xi, indices)
   );
 
-  // Aggregate: T = Σ(λ_i * P_i)
   let result = p256.ProjectivePoint.ZERO;
 
   for (let i = 0; i < points.length; i++) {
@@ -160,23 +220,9 @@ export function aggregate(partials: PartialEvaluation[]): Uint8Array {
     result = result.add(weighted);
   }
 
-  // Return encoded aggregated point
   return P256.encodePoint(result);
 }
 
-/**
- * Computes Lagrange interpolation coefficient for index x_i.
- *
- * Formula: λ_i = ∏(j≠i) (x_j / (x_j - x_i)) mod N
- *
- * We evaluate at x=0 for secret reconstruction:
- * λ_i = ∏(j≠i) (-x_j / (x_i - x_j)) mod N
- *     = ∏(j≠i) (x_j / (x_j - x_i)) mod N  (with sign handling)
- *
- * @param xi - The index for which to compute the coefficient
- * @param allIndices - All participating indices
- * @returns Lagrange coefficient λ_i mod N
- */
 function computeLagrangeCoefficient(xi: bigint, allIndices: bigint[]): bigint {
   let numerator = 1n;
   let denominator = 1n;
@@ -185,17 +231,11 @@ function computeLagrangeCoefficient(xi: bigint, allIndices: bigint[]): bigint {
 
   for (const xj of allIndices) {
     if (xj === xi) continue;
-
-    // numerator *= xj
     numerator = P256.modMul(numerator, xj);
-
-    // denominator *= (xj - xi)
     const diff = P256.modSub(xj, xi);
     denominator = P256.modMul(denominator, diff);
   }
 
-  // λ_i = numerator / denominator mod N
-  // Division in modular arithmetic: a/b = a * b^(-1) mod N
   const denomInverse = P256.invertScalar(denominator);
   return P256.modMul(numerator, denomInverse);
 }
@@ -203,46 +243,30 @@ function computeLagrangeCoefficient(xi: bigint, allIndices: bigint[]): bigint {
 /**
  * Verifies a Chaum-Pedersen DLEQ proof (Fiat-Shamir transformed).
  * Matches Rust: crypto/src/voprf/dleq.rs
- *
- * Proves that log_G(Y) == log_A(B), i.e., the same scalar k was used
- * to compute Y = G * k and B = A * k.
- *
- * @param G - Generator point
- * @param Y - Public key (G * k)
- * @param A - Blinded input point
- * @param B - Evaluated point (A * k)
- * @param proofBytes - DLEQ proof (64 bytes: c || s)
- * @param context - Domain separation context
- * @returns true if proof is valid
  */
 export function verifyDleq(
-  G: any, // Generator
-  Y: any, // Public Key
-  A: any, // Blinded Point
-  B: any, // Evaluated Point
+  G: any,
+  Y: any,
+  A: any,
+  B: any,
   proofBytes: Uint8Array,
   context: Uint8Array
 ): boolean {
-  // Decode proof scalars (c, s)
   const cBytes = proofBytes.slice(0, 32);
   const sBytes = proofBytes.slice(32, 64);
   const c = bytesToNumber(cBytes);
   const s = bytesToNumber(sBytes);
 
-  // Recompute commitments
-  // t1 = G * s - Y * c
   const sG = P256.multiply(G, s);
   const cY = P256.multiply(Y, c);
   const t1 = sG.subtract(cY);
 
-  // t2 = A * s - B * c
   const sA = P256.multiply(A, s);
   const cB = P256.multiply(B, c);
   const t2 = sA.subtract(cB);
 
-  // Recompute Challenge: H(dst_len || dst || G || Y || A || B || t1 || t2)
   const dst = concatBytes(DLEQ_DST_PREFIX, context);
-  const dstLenBytes = numberToBytesBE(dst.length, 4); // u32 Big Endian
+  const dstLenBytes = numberToBytesBE(dst.length, 4);
 
   const transcript = concatBytes(
     dstLenBytes,
@@ -257,7 +281,6 @@ export function verifyDleq(
 
   const computedC = hashToScalar(transcript);
 
-  // Check c == computedC
   return c === computedC;
 }
 
@@ -292,6 +315,5 @@ function numberToBytesBE(num: number, len: number): Uint8Array {
 function hashToScalar(bytes: Uint8Array): bigint {
   const hash = sha256(bytes);
   const num = bytesToNumber(hash);
-  // Reduce modulo curve order (Rust: Scalar::reduce_bytes)
   return num % p256.CURVE.n;
 }

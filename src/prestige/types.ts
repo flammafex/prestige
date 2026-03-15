@@ -31,16 +31,13 @@ export interface WitnessAttestation {
 
 // Freebird token - proves eligibility without revealing identity
 export interface FreebirdToken {
-  blindedToken: string;
-  proof: string;
+  /** Base64url-encoded V3 redemption token (self-contained) */
+  tokenValue: string;
   /** Issuer ID that minted this token (e.g. issuer:prod:v1) */
   issuerId?: string;
-  issuerPublicKey: string;
   expiresAt: number;
   /** Key identifier for rotation */
   kid?: string;
-  /** Epoch for MAC key derivation */
-  epoch?: number;
 }
 
 // Optional Sybil proof passed to Freebird issuer (format issuer-specific)
@@ -48,12 +45,10 @@ export type FreebirdSybilProof = unknown;
 
 // Optional token used when ballot gate is set to "freebird"
 export interface BallotCreationToken {
-  blindedToken: string;
-  proof: string;
+  /** Base64url-encoded V3 redemption token (self-contained) */
+  tokenValue: string;
   issuerId: string;
-  issuerPublicKey: string;
   expiresAt: number;
-  epoch: number;
   kid?: string;
 }
 

@@ -36,13 +36,6 @@ export class FreebirdBallotGate implements BallotGate {
       };
     }
 
-    if (!Number.isInteger(token.epoch) || token.epoch < 0) {
-      return {
-        allowed: false,
-        reason: 'Invalid ballot creation token epoch',
-      };
-    }
-
     // Check expiration
     if (token.expiresAt < Date.now()) {
       return {
@@ -51,14 +44,11 @@ export class FreebirdBallotGate implements BallotGate {
       };
     }
 
-    // Verify the token with Freebird
+    // Verify the V3 token with Freebird
     const valid = await this.freebird.verify({
-      blindedToken: token.blindedToken,
-      proof: token.proof,
+      tokenValue: token.tokenValue,
       issuerId: token.issuerId,
-      issuerPublicKey: token.issuerPublicKey,
       expiresAt: token.expiresAt,
-      epoch: token.epoch,
       kid: token.kid,
     });
 

@@ -421,11 +421,9 @@ export class VoteManager {
 
   private hashToken(token: FreebirdToken): string {
     return Crypto.hash(
-      token.blindedToken,
+      token.tokenValue,
       token.issuerId ?? '',
-      token.issuerPublicKey,
       token.kid ?? '',
-      String(token.epoch ?? ''),
       String(token.expiresAt)
     );
   }
