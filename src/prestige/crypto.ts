@@ -218,10 +218,20 @@ export class Crypto {
   }
 
   /**
-   * Deterministic JSON stringification for consistent hashing
+   * Deterministic JSON stringification for consistent hashing.
+   * Recursively sorts all object keys at every nesting level.
    */
   static canonicalJson(obj: unknown): string {
-    return JSON.stringify(obj, Object.keys(obj as object).sort());
+    return JSON.stringify(obj, (_key, value) => {
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        const sorted: Record<string, unknown> = {};
+        for (const k of Object.keys(value).sort()) {
+          sorted[k] = value[k];
+        }
+        return sorted;
+      }
+      return value;
+    });
   }
 
   /**

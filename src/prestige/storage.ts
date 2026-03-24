@@ -173,6 +173,12 @@ export class SQLiteStore implements PrestigeStore {
     stmt.run(status, id);
   }
 
+  async updateBallotStatusConditional(id: string, expectedStatus: BallotStatus, newStatus: BallotStatus): Promise<boolean> {
+    const stmt = this.db.prepare('UPDATE ballots SET status = ? WHERE id = ? AND status = ?');
+    const result = stmt.run(newStatus, id, expectedStatus);
+    return result.changes > 0;
+  }
+
   async updateBallotDeadlines(id: string, deadline: number, revealDeadline: number): Promise<void> {
     const stmt = this.db.prepare('UPDATE ballots SET deadline = ?, reveal_deadline = ? WHERE id = ?');
     stmt.run(deadline, revealDeadline, id);
@@ -187,13 +193,17 @@ export class SQLiteStore implements PrestigeStore {
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    stmt.run(
+    const result = stmt.run(
       vote.ballotId,
       vote.nullifier,
       vote.commitment,
       JSON.stringify(vote.proof),
       JSON.stringify(vote.attestation)
     );
+
+    if (result.changes === 0) {
+      throw new Error('DOUBLE_VOTE: nullifier already used on this ballot');
+    }
   }
 
   async getVotesByBallot(ballotId: string): Promise<Vote[]> {
@@ -415,6 +425,15 @@ export class InMemoryStore implements PrestigeStore {
     if (ballot) {
       ballot.status = status;
     }
+  }
+
+  async updateBallotStatusConditional(id: string, expectedStatus: BallotStatus, newStatus: BallotStatus): Promise<boolean> {
+    const ballot = this.ballots.get(id);
+    if (ballot && ballot.status === expectedStatus) {
+      ballot.status = newStatus;
+      return true;
+    }
+    return false;
   }
 
   async updateBallotDeadlines(id: string, deadline: number, revealDeadline: number): Promise<void> {

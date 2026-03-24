@@ -27,6 +27,11 @@ export interface WitnessAttestation {
   networkId?: string;
   /** Monotonic sequence number for ordering */
   sequence?: number;
+  /** Signature type: 'multisig' (Ed25519 per-witness) or 'aggregated' (BLS single sig).
+   *  Needed to reconstruct the correct wire format when sending back to the gateway. */
+  signatureType?: 'multisig' | 'aggregated';
+  /** Raw aggregated BLS signature (hex). Only set when signatureType === 'aggregated'. */
+  aggregatedSignature?: string;
 }
 
 // Freebird token - proves eligibility without revealing identity
@@ -35,13 +40,37 @@ export interface FreebirdToken {
   tokenValue: string;
   /** Issuer ID that minted this token (e.g. issuer:prod:v1) */
   issuerId?: string;
+  /** Expiration time in milliseconds since epoch (SDK uses Unix seconds as `expiration`) */
   expiresAt: number;
   /** Key identifier for rotation */
   kid?: string;
 }
 
-// Optional Sybil proof passed to Freebird issuer (format issuer-specific)
-export type FreebirdSybilProof = unknown;
+/**
+ * Sybil resistance proof types, matching Freebird SDK.
+ * See freebird/sdk/js/src/types.ts and freebird/common/src/api.rs
+ */
+export type FreebirdSybilProof =
+  | { type: 'proof_of_work'; nonce: number; input: string; timestamp: number }
+  | { type: 'rate_limit'; client_id: string; timestamp: number }
+  | { type: 'invitation'; code: string; signature: string }
+  | { type: 'registered_user'; user_id: string }
+  | { type: 'webauthn'; username: string; auth_proof: string; timestamp: number }
+  | { type: 'progressive_trust'; user_id_hash: string; first_seen: number; tokens_issued: number; last_issuance: number; hmac_proof: string }
+  | { type: 'proof_of_diversity'; user_id_hash: string; diversity_score: number; unique_networks: number; unique_devices: number; first_seen: number; hmac_proof: string }
+  | { type: 'multi_party_vouching'; vouchee_id_hash: string; vouches: VouchProof[]; hmac_proof: string; timestamp: number }
+  | { type: 'federated_trust'; source_issuer_id: string; source_token_b64: string; token_exp: number; token_issued_at?: number; trust_path: string[] }
+  | { type: 'multi'; proofs: FreebirdSybilProof[] }
+  | { type: 'none' };
+
+/** A single vouch proof for Multi-Party Vouching */
+export interface VouchProof {
+  voucher_id: string;
+  vouchee_id: string;
+  timestamp: number;
+  signature: string;
+  voucher_pubkey_b64: string;
+}
 
 // Optional token used when ballot gate is set to "freebird"
 export interface BallotCreationToken {
@@ -203,6 +232,8 @@ export interface PrestigeStore {
   getBallot(id: string): Promise<Ballot | null>;
   listBallots(options?: { status?: BallotStatus; limit?: number }): Promise<Ballot[]>;
   updateBallotStatus(id: string, status: BallotStatus): Promise<void>;
+  /** Conditionally update status only if current status matches expectedStatus. Returns true if updated. */
+  updateBallotStatusConditional(id: string, expectedStatus: BallotStatus, newStatus: BallotStatus): Promise<boolean>;
   updateBallotDeadlines(id: string, deadline: number, revealDeadline: number): Promise<void>;
 
   // Votes

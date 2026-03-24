@@ -12,7 +12,7 @@
     "build": "tsc && npm run copy-static",
     "copy-static": "cp -r src/web/public dist/web/",
     "dev": "tsc --watch",
-    "web": "node dist/web/server.js",
+    "web": "node --env-file=.env dist/web/server.js",
     "cli": "node dist/cli/index.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:integration": "npm test -- --testPathPattern=integration",

@@ -64,7 +64,7 @@ interface NetworkConfigResponse {
     endpoint: string;
   }>;
   threshold: number;
-  signature_scheme: 'Ed25519' | 'BLS';
+  signature_scheme: 'ed25519' | 'bls';
 }
 
 export interface WitnessAdapter {
@@ -168,33 +168,36 @@ export class HttpWitnessAdapter implements WitnessAdapter {
     const hashHex = bytesToHex(attestation.hash);
 
     // Handle both MultiSig and Aggregated signature formats
-    let witnessSignatures: Array<{ witnessId: string; signature: string }>;
-    let witnessIds: string[];
-
     if ('signatures' in signatures) {
-      // MultiSig format
-      witnessSignatures = signatures.signatures.map(s => ({
+      // MultiSig (Ed25519) format
+      const witnessSignatures = signatures.signatures.map(s => ({
         witnessId: s.witness_id,
         signature: bytesToHex(s.signature),
       }));
-      witnessIds = witnessSignatures.map(s => s.witnessId);
+      return {
+        hash: hashHex,
+        timestamp: attestation.timestamp,
+        signatures: witnessSignatures,
+        witnessIds: witnessSignatures.map(s => s.witnessId),
+        networkId: attestation.network_id,
+        sequence: attestation.sequence,
+        signatureType: 'multisig',
+      };
     } else {
-      // Aggregated (BLS) format
-      witnessSignatures = [{
-        witnessId: 'aggregated',
-        signature: bytesToHex(signatures.signature),
-      }];
-      witnessIds = signatures.signers;
+      // Aggregated (BLS) format — preserve the raw aggregated signature
+      // so we can reconstruct the correct wire format for verification
+      const aggregatedSigHex = bytesToHex(signatures.signature);
+      return {
+        hash: hashHex,
+        timestamp: attestation.timestamp,
+        signatures: [],  // Individual sigs not available in BLS aggregated mode
+        witnessIds: signatures.signers,
+        networkId: attestation.network_id,
+        sequence: attestation.sequence,
+        signatureType: 'aggregated',
+        aggregatedSignature: aggregatedSigHex,
+      };
     }
-
-    return {
-      hash: hashHex,
-      timestamp: attestation.timestamp,
-      signatures: witnessSignatures,
-      witnessIds,
-      networkId: attestation.network_id,
-      sequence: attestation.sequence,
-    };
   }
 
   async verify(attestation: WitnessAttestation): Promise<boolean> {
@@ -227,22 +230,38 @@ export class HttpWitnessAdapter implements WitnessAdapter {
   }
 
   /**
-   * Convert WitnessAttestation back to API format for verification
+   * Convert WitnessAttestation back to API format for verification.
+   * Must reconstruct the correct signature variant (MultiSig vs Aggregated)
+   * because the gateway uses serde(untagged) deserialization.
    */
   private toApiFormat(attestation: WitnessAttestation): SignedAttestationResponse {
+    const base = {
+      hash: hexToBytes(attestation.hash),
+      timestamp: attestation.timestamp,
+      network_id: attestation.networkId ?? 'prestige',
+      sequence: attestation.sequence ?? 0,
+    };
+
+    // Reconstruct BLS aggregated format
+    if (attestation.signatureType === 'aggregated' && attestation.aggregatedSignature) {
+      return {
+        attestation: base,
+        signatures: {
+          signature: hexToBytes(attestation.aggregatedSignature),
+          signers: attestation.witnessIds,
+        } as AggregatedSignatures,
+      };
+    }
+
+    // Default: MultiSig format
     return {
-      attestation: {
-        hash: hexToBytes(attestation.hash),
-        timestamp: attestation.timestamp,
-        network_id: attestation.networkId ?? 'prestige',
-        sequence: attestation.sequence ?? 0,
-      },
+      attestation: base,
       signatures: {
         signatures: attestation.signatures.map(s => ({
           witness_id: s.witnessId,
           signature: hexToBytes(s.signature),
         })),
-      },
+      } as MultiSigSignatures,
     };
   }
 

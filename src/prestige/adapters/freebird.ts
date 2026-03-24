@@ -36,10 +36,17 @@ interface IssueResponse {
   };
 }
 
+/**
+ * Issuer metadata from /.well-known/issuer
+ * Aligned with Freebird SDK IssuerMetadata (freebird/sdk/js/src/types.ts)
+ */
 interface IssuerMetadata {
   issuer_id: string;
-  voprf?: {
-    pubkey?: string;
+  voprf: {
+    suite: string;
+    kid: string;
+    pubkey: string;  // Base64url encoded SEC1 compressed point
+    exp_sec: number;
   };
 }
 
@@ -51,10 +58,18 @@ export interface FreebirdAdapter {
   issue(context: string, options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken>;
 
   /**
-   * Verify an eligibility token
-   * Returns true if the token is valid and not expired
+   * Verify and consume an eligibility token via /v1/verify.
+   * The token is marked as spent — it cannot be verified again.
+   * Use this only when accepting a token for the first time (e.g. casting a vote).
    */
   verify(token: FreebirdToken): Promise<boolean>;
+
+  /**
+   * Check a token's validity without consuming it via /v1/check.
+   * The token remains usable after this call.
+   * Use this for re-validation (e.g. gossip verification, audit checks).
+   */
+  check(token: FreebirdToken): Promise<boolean>;
 
   /**
    * Check if the Freebird service is available
@@ -93,6 +108,15 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
 
       if (response.ok) {
         const metadata = await response.json() as IssuerMetadata;
+
+        // Validate required fields
+        if (!metadata.voprf?.pubkey) {
+          throw new FreebirdError(
+            'Issuer metadata missing required voprf.pubkey field',
+            'INIT_FAILED'
+          );
+        }
+
         this.metadata = metadata;
         console.log(`[Freebird] Connected to issuer: ${metadata.issuer_id || 'unknown'}`);
       } else {
@@ -150,7 +174,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
 
       // 3. Verify DLEQ proof, unblind, and build V3 redemption token
       const output = voprf.finalize(
-        state, data.token, this.metadata?.voprf?.pubkey || '', this.context
+        state, data.token, this.metadata!.voprf.pubkey, this.context
       );
 
       // Clean up blind state
@@ -213,6 +237,45 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
     }
   }
 
+  /**
+   * Check a token's validity without consuming it.
+   * Uses /v1/check — token remains usable afterward.
+   */
+  async check(token: FreebirdToken): Promise<boolean> {
+    // Check expiration locally first
+    if (token.expiresAt < Date.now()) {
+      return false;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const url = `${this.config.verifierUrl}/v1/check`;
+
+    try {
+      console.log(`[Freebird] POST ${url}`);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token_b64: token.tokenValue,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      const data = await response.json() as { ok?: boolean; verified_at?: number };
+      return data.ok === true;
+    } catch {
+      console.warn('[Freebird] Check failed, assuming invalid');
+      return false;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   async healthCheck(): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -258,7 +321,21 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
       return false;
     }
 
-    // Check if token was issued by us
+    // Check if token was issued by us, then consume it
+    const exists = this.issuedTokens.has(token.tokenValue);
+    if (exists) {
+      this.issuedTokens.delete(token.tokenValue);
+    }
+    return exists;
+  }
+
+  async check(token: FreebirdToken): Promise<boolean> {
+    // Check expiration
+    if (token.expiresAt < Date.now()) {
+      return false;
+    }
+
+    // Check validity without consuming
     return this.issuedTokens.has(token.tokenValue);
   }
 

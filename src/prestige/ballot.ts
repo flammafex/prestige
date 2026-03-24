@@ -98,6 +98,11 @@ export class BallotManager {
     }
 
     if (ballot.status !== 'petition') {
+      // Idempotent: if already activated (e.g. by a concurrent petition signature),
+      // return the current ballot instead of throwing.
+      if (ballot.status === 'voting') {
+        return ballot;
+      }
       throw new PrestigeValidationError('Ballot is not in petition status');
     }
 
@@ -109,8 +114,16 @@ export class BallotManager {
     ballot.revealDeadline = now + durationMs + revealWindowMs;
     ballot.status = 'voting';
 
+    // Use conditional update to guard against concurrent activation.
+    // Only updates if the ballot is still in 'petition' status.
+    const updated = await this.store.updateBallotStatusConditional(ballotId, 'petition', 'voting');
+    if (!updated) {
+      // Another request already activated it — return current state
+      const current = await this.store.getBallot(ballotId);
+      return current!;
+    }
+
     await this.store.updateBallotDeadlines(ballotId, ballot.deadline, ballot.revealDeadline);
-    await this.store.updateBallotStatus(ballotId, 'voting');
 
     return ballot;
   }

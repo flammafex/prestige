@@ -11,6 +11,7 @@ import type {
   Reveal,
   Ballot,
   Result,
+  VoteData,
   GossipMessage,
   GossipMessageType,
   PeerConnection,
@@ -209,8 +210,10 @@ export class NullifierGossip {
       return;
     }
 
-    // 2. Verify Freebird token (eligible?)
-    const tokenValid = await this.freebird.verify(vote.proof);
+    // 2. Check Freebird token validity without consuming it.
+    // Uses /v1/check so the token remains usable — it was already consumed
+    // when the original voter cast their vote via /v1/verify.
+    const tokenValid = await this.freebird.check(vote.proof);
     if (!tokenValid) {
       this.penalizePeer(peerId, 'invalid_proof');
       return;
@@ -292,8 +295,15 @@ export class NullifierGossip {
       return;
     }
 
-    // Verify commitment
-    const computedCommitment = Crypto.generateCommitment(reveal.choice, reveal.salt);
+    // Verify commitment — use the correct method based on vote type
+    const voteType = ballot.voteType?.type ?? 'single';
+    const voteData = reveal.voteData ?? { type: 'single' as const, choice: reveal.choice };
+    let computedCommitment: string;
+    if (voteType === 'single' && voteData.type === 'single') {
+      computedCommitment = Crypto.generateCommitment(reveal.choice, reveal.salt);
+    } else {
+      computedCommitment = Crypto.generateVoteCommitment(voteData, reveal.salt);
+    }
     if (!Crypto.constantTimeEqual(computedCommitment, originalVote.commitment)) {
       this.penalizePeer(peerId, 'invalid_reveal');
       return;

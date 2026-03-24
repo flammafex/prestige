@@ -135,16 +135,11 @@ export class VoteManager {
       throw new VoteError('Invalid nullifier format', ErrorCodes.INVALID_COMMITMENT);
     }
 
-    // 6. Check for double voting (nullifier already used)
-    const hasVoted = await this.store.hasNullifier(request.ballotId, request.nullifier);
-    if (hasVoted) {
-      throw new VoteError('You have already voted on this ballot', ErrorCodes.DOUBLE_VOTE);
-    }
-
-    // 6b. Prepare replay-protection fingerprint for this eligibility token.
+    // 6. Prepare replay-protection fingerprint for this eligibility token.
     const tokenHash = this.hashToken(request.proof);
 
-    // 7. Verify Freebird token (eligibility check)
+    // 7. Verify Freebird token (eligibility check) — do this before
+    // the critical section since it's an expensive external call.
     const tokenValid = await this.freebird.verify(request.proof);
     if (!tokenValid) {
       throw new VoteError('Invalid eligibility proof', ErrorCodes.INVALID_PROOF);
@@ -165,7 +160,18 @@ export class VoteManager {
       throw new VoteError('Vote attestation is after deadline', ErrorCodes.TOO_LATE);
     }
 
-    // 10. Create and store the vote
+    // 10. Atomically claim the token and save the vote.
+    // markTokenSpent uses INSERT OR IGNORE with a unique constraint,
+    // so concurrent replays of the same token are blocked.
+    const tokenClaimed = await this.store.markTokenSpent(request.ballotId, tokenHash);
+    if (!tokenClaimed) {
+      throw new VoteError('Eligibility token has already been used on this ballot', ErrorCodes.TOKEN_REUSED);
+    }
+
+    // 11. Create and store the vote.
+    // saveVote will throw on duplicate nullifier (UNIQUE constraint on ballot_id+nullifier),
+    // which guards against the TOCTOU race where two requests with different tokens but
+    // the same nullifier both pass the token spend check.
     const vote: Vote = {
       ballotId: request.ballotId,
       nullifier: request.nullifier,
@@ -174,14 +180,14 @@ export class VoteManager {
       attestation,
     };
 
-    // Atomically claim the token spend before persisting vote.
-    // This prevents concurrent replay of the same eligibility token.
-    const tokenClaimed = await this.store.markTokenSpent(request.ballotId, tokenHash);
-    if (!tokenClaimed) {
-      throw new VoteError('Eligibility token has already been used on this ballot', ErrorCodes.TOKEN_REUSED);
+    try {
+      await this.store.saveVote(vote);
+    } catch (e: any) {
+      if (e.message?.includes('DOUBLE_VOTE')) {
+        throw new VoteError('You have already voted on this ballot', ErrorCodes.DOUBLE_VOTE);
+      }
+      throw e;
     }
-
-    await this.store.saveVote(vote);
 
     // Apply privacy delay to mask processing time
     await privacyDelay(this.privacyConfig);
@@ -232,14 +238,15 @@ export class VoteManager {
       errors.push('Invalid nullifier format');
     }
 
-    // 4. Verify Freebird token
+    // 4. Check Freebird token validity without consuming it.
+    // Uses /v1/check — the token was already consumed when the vote was first cast.
     try {
-      const tokenValid = await this.freebird.verify(vote.proof);
+      const tokenValid = await this.freebird.check(vote.proof);
       if (!tokenValid) {
         errors.push('Invalid eligibility proof');
       }
     } catch (e) {
-      errors.push(`Freebird verification failed: ${e}`);
+      errors.push(`Freebird check failed: ${e}`);
     }
 
     // 5. Verify witness attestation

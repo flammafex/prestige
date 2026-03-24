@@ -253,8 +253,9 @@ export function privacyRateLimiter(
     if (sessionId) {
       return `session:${sessionId}`;
     }
-    // Fall back to user-agent hash (very coarse, shared by many users)
-    return `ua:${hashString(req.headers['user-agent'] || 'unknown')}`;
+    // Fall back to hashed IP (privacy-preserving but effective)
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    return `ip:${hashString(ip)}`;
   });
 
   return (req: Request, res: Response, next: NextFunction) => {

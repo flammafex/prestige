@@ -238,9 +238,13 @@ app.post('/api/ballot', async (req: Request, res: Response) => {
       }
       creatorPublicKey = publicKey;
     } else if (publicKey) {
-      // Best-effort identity attribution when signature isn't available.
-      // This still allows gate checks to apply against the claimed public key.
-      creatorPublicKey = publicKey;
+      // Public key without signature — reject for identity-gated operations
+      // to prevent spoofing allowlisted keys without proving key possession.
+      res.status(401).json({
+        error: 'X-Signature header required when X-Public-Key is provided',
+        code: 'SIGNATURE_REQUIRED',
+      });
+      return;
     }
 
     // createBallot will check the ballot gate internally
@@ -920,33 +924,10 @@ app.get('/api/results/:ballotId/export/csv', async (req: Request, res: Response)
 
 // ============= Client-Side Crypto Helpers =============
 
-/**
- * POST /api/crypto/commitment - Generate commitment (for testing)
- * In production, this should be done client-side
- */
-app.post('/api/crypto/commitment', (req: Request, res: Response) => {
-  const { choice, salt } = req.body;
-  if (!choice || !salt) {
-    res.status(400).json({ error: 'Missing choice or salt' });
-    return;
-  }
-  const commitment = prestige.generateCommitment(choice, salt);
-  res.json({ commitment });
-});
-
-/**
- * POST /api/crypto/nullifier - Generate nullifier (for testing)
- * In production, this should be done client-side
- */
-app.post('/api/crypto/nullifier', (req: Request, res: Response) => {
-  const { voterSecret, ballotId } = req.body;
-  if (!voterSecret || !ballotId) {
-    res.status(400).json({ error: 'Missing voterSecret or ballotId' });
-    return;
-  }
-  const nullifier = prestige.generateNullifier(voterSecret, ballotId);
-  res.json({ nullifier });
-});
+// NOTE: /api/crypto/commitment and /api/crypto/nullifier endpoints removed.
+// These accepted voterSecret and plaintext choice over HTTP, breaking vote
+// anonymity and secrecy. Commitment and nullifier generation must happen
+// entirely client-side.
 
 /**
  * GET /api/crypto/salt - Generate random salt
@@ -964,23 +945,8 @@ app.get('/api/crypto/secret', (_req: Request, res: Response) => {
   res.json({ secret });
 });
 
-/**
- * POST /api/crypto/sign - Sign a message with private key
- * Used for petition signing where client needs Ed25519 signature
- */
-app.post('/api/crypto/sign', (req: Request, res: Response) => {
-  const { message, privateKey } = req.body;
-  if (!message || !privateKey) {
-    res.status(400).json({ error: 'Missing message or privateKey' });
-    return;
-  }
-  try {
-    const signature = Crypto.sign(message, privateKey);
-    res.json({ signature });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Signing failed' });
-  }
-});
+// NOTE: Private key signing endpoint removed — accepting private keys over HTTP
+// is a key exfiltration risk. Petition signing must happen entirely client-side.
 
 // ============= Page Routes =============
 
