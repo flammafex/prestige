@@ -230,9 +230,33 @@ Exports include:
 
 ### Using Docker Compose
 
+The Compose stack builds Prestige plus its sibling service checkouts. Keep these
+repositories next to each other:
+
+```text
+dev/
+  prestige/
+  freebird/
+  witness/
+  hypertoken/
+```
+
 ```bash
-# Start all services
-docker compose up -d
+# Create local configuration
+cp .env.example .env
+
+# Fill PRESTIGE_PRIVATE_KEY and FREEBIRD_ADMIN_KEY in .env.
+# For local testing, 32 random bytes is enough; run this once per value:
+node -e "const { randomBytes } = require('crypto'); console.log(randomBytes(32).toString('hex'))"
+
+# For a local smoke test, also set these in .env:
+# FREEBIRD_SYBIL_MODE=none
+# BALLOT_GATE=open
+# VOTER_GATE=open
+# ALLOW_OPEN_GATES_IN_PRODUCTION=true
+
+# Start all services from local checkouts
+docker compose up --build
 
 # Create a ballot
 curl -X POST http://localhost:3000/api/ballot \
@@ -253,7 +277,7 @@ npm install
 npm run build
 
 # Start in mock mode (no external services required)
-USE_MOCKS=true npm run dev
+USE_MOCKS=true npm run web
 
 # Or start with real services
 npm run web
@@ -263,7 +287,8 @@ npm run web
 
 For testing without external services:
 ```bash
-USE_MOCKS=true npm run dev
+npm run build
+USE_MOCKS=true npm run web
 ```
 
 This uses mock adapters for Freebird, Witness, and HyperToken.
@@ -460,6 +485,11 @@ TOKEN_CHALLENGE_TTL_MS=300000            # Token challenge nonce TTL in ms (defa
 # Freebird (VOPRF Token System)
 FREEBIRD_ISSUER_URL=http://localhost:8081
 FREEBIRD_VERIFIER_URL=http://localhost:8082
+FREEBIRD_ISSUER_ID=issuer:prestige:v4
+FREEBIRD_VERIFIER_ID=verifier:prestige:v4
+FREEBIRD_VERIFIER_AUDIENCE=prestige
+FREEBIRD_SYBIL_MODE=invitation
+FREEBIRD_ADMIN_KEY=<strong-admin-key>
 
 # Witness (BFT Timestamping)
 WITNESS_URL=http://localhost:8080
@@ -467,21 +497,25 @@ WITNESS_URL=http://localhost:8080
 # HyperToken Relay (optional - only needed for multi-node federation)
 # HYPERTOKEN_RELAY_URL=ws://localhost:3001
 
+# Stable instance identity (required in production)
+PRESTIGE_PRIVATE_KEY=<32-byte-hex-private-key>
+PRESTIGE_PUBLIC_KEY=<matching-public-key>  # Optional startup guard
+
 # Ballot defaults
 DEFAULT_BALLOT_DURATION_MINUTES=1440       # 24 hours
 REVEAL_WINDOW_MINUTES=1440                 # 24 hours
 MIN_DURATION_MINUTES=1                     # Minimum allowed duration
 
 # Ballot Gate (who can create ballots)
-BALLOT_GATE=open                           # open | owner | delegation | freebird | petition
+BALLOT_GATE=owner                          # open | owner | delegation | freebird | petition
 BALLOT_GATE_ADMIN_KEY=<public-key>         # For owner gate (defaults to instance key)
 BALLOT_GATE_DELEGATES=key1,key2,key3       # For delegation gate
 BALLOT_GATE_FREEBIRD_ISSUER=<issuer-id>    # For freebird gate
-# Freebird ballot creation token must include issuerId + epoch
+ALLOW_OPEN_GATES_IN_PRODUCTION=false       # Set true only for intentional public-poll mode
 BALLOT_GATE_PETITION_THRESHOLD=10          # For petition gate (default: 10)
 
 # Voter Gate (who can vote on this instance)
-VOTER_GATE=open                            # open | freebird | allowlist
+VOTER_GATE=freebird                        # open | freebird | allowlist
 VOTER_GATE_ALLOWLIST=key1,key2,key3        # For allowlist gate
 
 # Proposal Gate (when BALLOT_GATE=petition)

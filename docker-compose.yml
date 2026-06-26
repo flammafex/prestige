@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # Main Prestige application
   prestige:
@@ -12,9 +10,23 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATA_DIR=/data
+      - PRESTIGE_PRIVATE_KEY=${PRESTIGE_PRIVATE_KEY:?set PRESTIGE_PRIVATE_KEY to a stable 32-byte hex Ed25519 private key}
+      - PRESTIGE_PUBLIC_KEY=${PRESTIGE_PUBLIC_KEY:-}
       - FREEBIRD_ISSUER_URL=http://freebird-issuer:8081
       - FREEBIRD_VERIFIER_URL=http://freebird-verifier:8082
       - WITNESS_URL=http://witness-gateway:8080
+      - BALLOT_GATE=${BALLOT_GATE:?set BALLOT_GATE to owner, delegation, freebird, petition, or explicitly open}
+      - VOTER_GATE=${VOTER_GATE:?set VOTER_GATE to freebird, allowlist, or explicitly open}
+      - ALLOW_OPEN_GATES_IN_PRODUCTION=${ALLOW_OPEN_GATES_IN_PRODUCTION:-false}
+      - BALLOT_GATE_ADMIN_KEY=${BALLOT_GATE_ADMIN_KEY:-}
+      - BALLOT_GATE_DELEGATES=${BALLOT_GATE_DELEGATES:-}
+      - BALLOT_GATE_FREEBIRD_ISSUER=${BALLOT_GATE_FREEBIRD_ISSUER:-}
+      - BALLOT_GATE_FREEBIRD_ISSUER_URL=${BALLOT_GATE_FREEBIRD_ISSUER_URL:-}
+      - BALLOT_GATE_PETITION_THRESHOLD=${BALLOT_GATE_PETITION_THRESHOLD:-10}
+      - VOTER_GATE_ALLOWLIST=${VOTER_GATE_ALLOWLIST:-}
+      - VOTER_GATE_FREEBIRD_ISSUER_URL=${VOTER_GATE_FREEBIRD_ISSUER_URL:-}
+      - PETITION_PROPOSAL_GATE=${PETITION_PROPOSAL_GATE:-voters}
+      - PETITION_PROPOSAL_DELEGATES=${PETITION_PROPOSAL_DELEGATES:-}
       - HYPERTOKEN_RELAY_URL=ws://hypertoken-relay:3001
     volumes:
       - prestige-data:/data
@@ -55,40 +67,53 @@ services:
 
   # Freebird Issuer - Token issuance via VOPRF
   freebird-issuer:
-    image: ghcr.io/flammafex/freebird-issuer:latest
+    build:
+      context: ../freebird
+      target: issuer
     ports:
       - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
     environment:
-      - PORT=8081
-      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:-none}
-      - TOKEN_TTL_MIN=${TOKEN_TTL:-60}
-      - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-}
+      - BIND_ADDR=0.0.0.0:8081
+      - ISSUER_ID=${FREEBIRD_ISSUER_ID:-issuer:prestige:v4}
+      - ISSUER_SK_PATH=/data/keys/issuer_sk.bin
+      - KEY_ROTATION_STATE_PATH=/data/keys/key_rotation_state.json
+      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:?set FREEBIRD_SYBIL_MODE, e.g. invitation, proof_of_work, webauthn, or none for local testing only}
+      - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:?set FREEBIRD_ADMIN_KEY to a strong admin key}
+      - REQUIRE_TLS=${FREEBIRD_REQUIRE_TLS:-false}
     volumes:
       - freebird-issuer-data:/data
     networks:
       - prestige-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/.well-known/issuer"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # Freebird Verifier - Token verification
   freebird-verifier:
-    image: ghcr.io/flammafex/freebird-verifier:latest
+    build:
+      context: ../freebird
+      target: verifier
     ports:
       - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
     environment:
-      - PORT=8082
+      - BIND_ADDR=0.0.0.0:8082
+      - VERIFIER_ID=${FREEBIRD_VERIFIER_ID:-verifier:prestige:v4}
+      - VERIFIER_AUDIENCE=${FREEBIRD_VERIFIER_AUDIENCE:-prestige}
       - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
+      - VERIFIER_SK_PATH=/issuer-data/keys/issuer_sk.bin
       - REDIS_URL=redis://redis:6379
+      - REQUIRE_TLS=${FREEBIRD_REQUIRE_TLS:-false}
     depends_on:
       - freebird-issuer
       - redis
+    volumes:
+      - freebird-issuer-data:/issuer-data:ro
     networks:
       - prestige-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -108,113 +133,158 @@ services:
 
   # Witness setup - Generates keys and configures cluster
   witness-setup:
-    image: ghcr.io/flammafex/witness:latest
-    command: setup --nodes=3 --threshold=2 --output=/config
+    build:
+      context: ../witness
+      target: witness-node
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ -f /data/network.json ]; then
+          echo "Witness configuration already exists. Skipping setup."
+          exit 0
+        fi
+
+        echo "Generating Witness keys..."
+
+        gen_config() {
+          ID=$$1
+          OUT=$$(witness-node --generate-key)
+          PRIV=$$(echo "$$OUT" | grep "Private key:" | awk '{print $$3}')
+          PUB=$$(echo "$$OUT" | grep "Public key:" | awk '{print $$3}')
+          TOKEN=$$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+
+          echo "{\"id\": \"witness-$$ID\", \"private_key\": \"$$PRIV\", \"port\": 3000, \"host\": \"0.0.0.0\", \"network_id\": \"prestige-docker\", \"max_clock_skew\": 300, \"signing_auth_token\": \"$$TOKEN\"}" > /data/witness$$ID.json
+          echo "$$PUB,$$TOKEN"
+        }
+
+        W1=$$(gen_config 1)
+        W2=$$(gen_config 2)
+        W3=$$(gen_config 3)
+
+        IFS=',' read -r PUB1 TOKEN1 <<< "$$W1"
+        IFS=',' read -r PUB2 TOKEN2 <<< "$$W2"
+        IFS=',' read -r PUB3 TOKEN3 <<< "$$W3"
+
+        cat > /data/network.json <<EOF
+        {
+          "id": "prestige-docker",
+          "threshold": 2,
+          "witnesses": [
+            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1:3000", "auth_token": "$$TOKEN1" },
+            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2:3000", "auth_token": "$$TOKEN2" },
+            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3:3000", "auth_token": "$$TOKEN3" }
+          ],
+          "federation_peers": [],
+          "external_anchors": { "enabled": false, "providers": [] }
+        }
+        EOF
+
+        echo "Witness setup complete."
     volumes:
-      - witness-config:/config
+      - witness-config:/data
     networks:
       - prestige-net
 
   # Witness Node 1
   witness-1:
-    image: ghcr.io/flammafex/witness:latest
-    environment:
-      - NODE_ID=1
-      - CONFIG_DIR=/config
-      - PORT=8080
+    build:
+      context: ../witness
+      target: witness-node
+    command: ["witness-node", "--config", "/data/witness1.json", "--host", "0.0.0.0"]
     volumes:
-      - witness-config:/config:ro
-      - witness-1-data:/data
+      - witness-config:/data
     depends_on:
       witness-setup:
         condition: service_completed_successfully
     networks:
       - prestige-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # Witness Node 2
   witness-2:
-    image: ghcr.io/flammafex/witness:latest
-    environment:
-      - NODE_ID=2
-      - CONFIG_DIR=/config
-      - PORT=8080
+    build:
+      context: ../witness
+      target: witness-node
+    command: ["witness-node", "--config", "/data/witness2.json", "--host", "0.0.0.0"]
     volumes:
-      - witness-config:/config:ro
-      - witness-2-data:/data
+      - witness-config:/data
     depends_on:
       witness-setup:
         condition: service_completed_successfully
     networks:
       - prestige-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # Witness Node 3
   witness-3:
-    image: ghcr.io/flammafex/witness:latest
-    environment:
-      - NODE_ID=3
-      - CONFIG_DIR=/config
-      - PORT=8080
+    build:
+      context: ../witness
+      target: witness-node
+    command: ["witness-node", "--config", "/data/witness3.json", "--host", "0.0.0.0"]
     volumes:
-      - witness-config:/config:ro
-      - witness-3-data:/data
+      - witness-config:/data
     depends_on:
       witness-setup:
         condition: service_completed_successfully
     networks:
       - prestige-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # Witness Gateway - Aggregates BFT consensus
   witness-gateway:
-    image: ghcr.io/flammafex/witness-gateway:latest
+    build:
+      context: ../witness
+      target: witness-gateway
     ports:
       - "${WITNESS_PORT:-8080}:8080"
     environment:
-      - PORT=8080
-      - CONFIG_DIR=/config
-      - THRESHOLD=2
-      - WITNESS_URLS=http://witness-1:8080,http://witness-2:8080,http://witness-3:8080
-      - DATABASE=memory
+      - RUST_LOG=${RUST_LOG:-info,witness_gateway=debug}
     volumes:
-      - witness-config:/config:ro
+      - witness-config:/config
+      - witness-gateway-data:/data
+    command: ["witness-gateway", "--config", "/config/network.json", "--host", "0.0.0.0", "--port", "8080", "--database", "/data/gateway.db"]
     depends_on:
-      - witness-1
-      - witness-2
-      - witness-3
+      witness-1:
+        condition: service_healthy
+      witness-2:
+        condition: service_healthy
+      witness-3:
+        condition: service_healthy
     networks:
       - prestige-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   # HyperToken Relay - Real-time P2P communication
   hypertoken-relay:
-    image: ghcr.io/flammafex/hypertoken-relay:latest
+    build:
+      context: ../hypertoken
+      dockerfile: Dockerfile
+    command: ["node", "dist/cli/index.js", "relay"]
     ports:
       - "${RELAY_PORT:-3001}:3001"
     environment:
       - PORT=3001
-      - MAX_CONNECTIONS=${RELAY_MAX_CONNECTIONS:-1000}
+      - VERBOSE=${HYPERTOKEN_VERBOSE:-false}
     networks:
       - prestige-net
     healthcheck:
-      test: ["CMD", "node", "-e", "const ws = new (require('ws'))('ws://localhost:3001'); ws.on('open', () => process.exit(0)); ws.on('error', () => process.exit(1)); setTimeout(() => process.exit(1), 5000);"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -229,6 +299,4 @@ volumes:
   freebird-issuer-data:
   redis-data:
   witness-config:
-  witness-1-data:
-  witness-2-data:
-  witness-3-data:
+  witness-gateway-data:
