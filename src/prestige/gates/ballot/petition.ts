@@ -77,12 +77,14 @@ export class PetitionBallotGate implements BallotGate {
 
   /**
    * Get petition status for a ballot
+   *
+   * Returns a zero-signature status ({ current: 0, signatures: [], activated: false })
+   * when no signatures exist yet, so the UI can render the petition section and
+   * the first eligible signer can see/sign. Returning null here would hide the
+   * petition section entirely, preventing the first signature from ever being added.
    */
-  async getPetitionStatus(ballotId: string): Promise<PetitionStatus | null> {
-    const signatures = await this.store.getPetitionSignatures(ballotId);
-    if (!signatures || signatures.length === 0) {
-      return null;
-    }
+  async getPetitionStatus(ballotId: string): Promise<PetitionStatus> {
+    const signatures = (await this.store.getPetitionSignatures(ballotId)) ?? [];
 
     const activated = signatures.length >= this.threshold;
     const activatedSignature = activated
@@ -131,7 +133,7 @@ export class PetitionBallotGate implements BallotGate {
     const previousCount = existing?.length ?? 0;
     if (existing?.some((s) => s.publicKey === publicKey)) {
       const status = await this.getPetitionStatus(ballotId);
-      return { added: false, activated: status?.activated ?? false, status: status! };
+      return { added: false, activated: status.activated, status };
     }
 
     // Add the signature
@@ -147,13 +149,13 @@ export class PetitionBallotGate implements BallotGate {
     // Check if now activated
     const status = await this.getPetitionStatus(ballotId);
     const wasActivated = previousCount < this.threshold;
-    const nowActivated = status!.activated;
+    const nowActivated = status.activated;
     const justActivated = wasActivated && nowActivated;
 
     return {
       added: true,
       activated: justActivated,
-      status: status!,
+      status,
     };
   }
 
@@ -162,7 +164,7 @@ export class PetitionBallotGate implements BallotGate {
    */
   async isActivated(ballotId: string): Promise<boolean> {
     const status = await this.getPetitionStatus(ballotId);
-    return status?.activated ?? false;
+    return status.activated;
   }
 }
 

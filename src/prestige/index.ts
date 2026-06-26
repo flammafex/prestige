@@ -285,6 +285,21 @@ export class Prestige {
       throw new BallotCreationError('Instance does not use petition gate', ErrorCodes.VALIDATION_ERROR);
     }
 
+    // Verify the ballot exists and is actually a petition ballot. Without this
+    // check, addSignature would happily record signatures against non-existent
+    // or already-activated ballots, returning a misleading zero-signature
+    // status for arbitrary ballot IDs.
+    const ballot = await this.ballotManager.getBallot(ballotId);
+    if (!ballot) {
+      throw new BallotCreationError('Ballot not found', ErrorCodes.BALLOT_NOT_FOUND);
+    }
+    if (!this.ballotManager.isPetition(ballot)) {
+      throw new BallotCreationError(
+        'Ballot is not in petition status',
+        ErrorCodes.VALIDATION_ERROR,
+      );
+    }
+
     const petitionGate = this.ballotGate as PetitionBallotGate;
     const result = await petitionGate.addSignature(ballotId, publicKey, signature);
 
@@ -301,6 +316,15 @@ export class Prestige {
    */
   async getPetitionStatus(ballotId: string): Promise<PetitionStatus | null> {
     if (this.ballotGate.type !== 'petition') {
+      return null;
+    }
+
+    // Only return petition status for ballots that actually exist and are in
+    // petition status. Returning a zero-signature status for arbitrary or
+    // non-petition ballot IDs would mislead the UI into rendering a petition
+    // section for ballots that aren't petitions.
+    const ballot = await this.ballotManager.getBallot(ballotId);
+    if (!ballot || !this.ballotManager.isPetition(ballot)) {
       return null;
     }
 
@@ -645,7 +669,29 @@ export function createPrestige(configOverrides?: Partial<PrestigeConfig>): Prest
     console.log('  HyperToken: disabled (no HYPERTOKEN_RELAY_URL configured)');
   }
 
-  return new Prestige({ config, hypertoken });
+  return new Prestige({
+    config,
+    identity: loadIdentityFromEnv(),
+    hypertoken,
+  });
+}
+
+function loadIdentityFromEnv(): KeyPair | undefined {
+  const privateKey = process.env.PRESTIGE_PRIVATE_KEY;
+  if (!privateKey) return undefined;
+
+  const normalizedPrivateKey = privateKey.trim().toLowerCase();
+  const publicKey = Crypto.publicKeyFromPrivateKey(normalizedPrivateKey);
+  const configuredPublicKey = process.env.PRESTIGE_PUBLIC_KEY?.trim().toLowerCase();
+
+  if (configuredPublicKey && configuredPublicKey !== publicKey) {
+    throw new Error('PRESTIGE_PUBLIC_KEY does not match PRESTIGE_PRIVATE_KEY');
+  }
+
+  return {
+    privateKey: normalizedPrivateKey,
+    publicKey,
+  };
 }
 
 /**

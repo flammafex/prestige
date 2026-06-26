@@ -48,6 +48,62 @@
       <!-- Gate Status Banner -->
       <div id="gate-banner"></div>
 
+      <!-- First-run local identity notice (dismissed once, never reshown) -->
+      <div id="identity-notice" class="alert alert-info hidden" role="status">
+        <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+          <div style="flex: 1;">
+            <strong>Local voting identity created.</strong>
+            Prestige created a local voting identity stored only in this browser.
+            You'll need to return to this browser to reveal your votes &mdash; don't
+            clear this site's data before revealing.
+          </div>
+          <button type="button" class="btn btn-secondary" id="identity-notice-dismiss"
+            style="padding: 0.25rem 0.75rem; font-size: 0.8rem; flex: none;">
+            Got it
+          </button>
+        </div>
+      </div>
+
+      <!-- How Prestige Works (collapsible, open by default on first visit) -->
+      <div class="card" id="how-it-works">
+        <details class="how-it-works-section" open>
+          <summary class="how-it-works-header">
+            <span>How Prestige Works</span>
+          </summary>
+
+          <ol class="how-it-works-steps">
+            <li>
+              <strong>Create or join a ballot.</strong>
+              Anyone with the link can vote; the creator picks the question and choices.
+            </li>
+            <li>
+              <strong>Vote privately.</strong>
+              Your choice is hidden inside a cryptographic commitment. The server
+              never sees what you voted for.
+            </li>
+            <li>
+              <strong>Return after voting ends to reveal your choice.</strong>
+              Reveal is required for your vote to count &mdash; use the same browser
+              where you voted.
+            </li>
+            <li>
+              <strong>Anyone can verify the final tally.</strong>
+              Every commitment and reveal is public, so the result is independently
+              checkable.
+            </li>
+          </ol>
+        </details>
+      </div>
+
+      <!-- Gate Requirements Panel -->
+      <div class="card" id="gate-info-card">
+        <div class="card-header">
+          <h2 class="card-title">Who Can Use This Instance</h2>
+          <p class="card-subtitle">Gate rules for creating ballots and voting here</p>
+        </div>
+        <div id="gate-info-panel"></div>
+      </div>
+
       <!-- Create Ballot Form -->
       <div class="card" id="create-form">
         <!-- Authorized: show the form -->
@@ -455,7 +511,7 @@
         const durationMinutes = parseInt(document.getElementById('duration').value, 10);
         const revealWindowMinutes = parseInt(document.getElementById('reveal-window').value, 10);
         const voteType = buildVoteTypeConfig();
-        const ballotRequest = {
+        const ballotParams = {
           question,
           choices,
           durationMinutes,
@@ -463,32 +519,17 @@
           voteType,
         };
 
-        let signedRequest = { ...ballotRequest };
-        try {
-          const userIdentity = await identity.getIdentity();
-          const payload = JSON.stringify(ballotRequest);
-          const creatorSignature = await prestigeCrypto.sign(payload, userIdentity.privateKey);
-          signedRequest = {
-            ...ballotRequest,
-            creatorPublicKey: userIdentity.publicKey,
-            creatorSignature,
-          };
-        } catch (signError) {
-          console.warn('Unable to sign ballot creation request, submitting unsigned request', signError);
-        }
+        // Sign the EXACT JSON body that api.createBallot will send, using the
+        // active (post-migration) identity key. signMessageWithKey returns
+        // the public key matching the signature so they cannot drift.
+        const bodyString = api.createBallotBodyString(ballotParams);
+        const { publicKey, signature } = await identity.signMessageWithKey(bodyString);
 
-        let result;
-        try {
-          result = await api.createBallot(signedRequest);
-        } catch (error) {
-          // Retry without signature so older local identities can still create ballots.
-          if (error.code === 'INVALID_SIGNATURE' && signedRequest.creatorPublicKey) {
-            const { creatorSignature, ...fallbackRequest } = signedRequest;
-            result = await api.createBallot(fallbackRequest);
-          } else {
-            throw error;
-          }
-        }
+        const result = await api.createBallot({
+          ...ballotParams,
+          creatorPublicKey: publicKey,
+          creatorSignature: signature,
+        });
 
         // Show success
         document.getElementById('create-form').classList.add('hidden');
@@ -604,6 +645,9 @@
       try {
         await gates.load();
         gates.renderBanner('gate-banner');
+        // Render the full gate requirements/info panel so users understand
+        // the rules (and see why if they are denied).
+        gates.renderInfo('gate-info-panel');
 
         if (gates.canCreate()) {
           document.getElementById('create-authorized').classList.remove('hidden');
@@ -616,12 +660,31 @@
         // If gates fail to load, show the form anyway
         console.error('Failed to load gates:', e);
         document.getElementById('create-authorized').classList.remove('hidden');
+        // Hide the gate info card if we couldn't load gate data.
+        document.getElementById('gate-info-card').classList.add('hidden');
       }
+    }
+
+    // Show the first-run identity notice exactly once per browser, only when
+    // a new local identity was created during this page load.
+    function maybeShowIdentityNotice() {
+      if (!identity.shouldShowFirstRunNotice()) return;
+
+      const notice = document.getElementById('identity-notice');
+      notice.classList.remove('hidden');
+
+      const dismiss = () => {
+        identity.acknowledgeIdentity();
+        notice.classList.add('hidden');
+        document.getElementById('identity-notice-dismiss').removeEventListener('click', dismiss);
+      };
+      document.getElementById('identity-notice-dismiss').addEventListener('click', dismiss);
     }
 
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
       await initIdentity();
+      maybeShowIdentityNotice();
       await initGates();
       loadRecentBallots();
     });

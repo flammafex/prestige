@@ -48,18 +48,18 @@ if (privacyConfig.enabled) {
 // WITNESS_URL enables real Witness adapter (other adapters can still be mocked)
 const useMocks = process.env.USE_MOCKS === 'true';
 const hasWitnessUrl = !!process.env.WITNESS_URL;
+const isProduction = process.env.NODE_ENV === 'production';
+
+validateRuntimeConfig();
 
 let prestige: Prestige;
-if (useMocks || !hasWitnessUrl) {
+if (!isProduction && (useMocks || !hasWitnessUrl)) {
   // Full mock mode - use test config with open gates
   prestige = createTestPrestige();
   console.log('Running in mock mode (no external services required)');
 } else {
   // Production mode - use real adapters with env-configured gates
   prestige = createPrestige({
-    // Allow overriding gates via env, default to 'open' for MVP
-    ballotGate: (process.env.BALLOT_GATE as any) ?? 'open',
-    voterGate: (process.env.VOTER_GATE as any) ?? 'open',
     // Allow shorter durations for testing
     minDurationMinutes: process.env.MIN_DURATION_MINUTES
       ? parseInt(process.env.MIN_DURATION_MINUTES, 10)
@@ -69,6 +69,37 @@ if (useMocks || !hasWitnessUrl) {
   console.log(`  Witness: ${process.env.WITNESS_URL}`);
   if (process.env.FREEBIRD_ISSUER_URL) {
     console.log(`  Freebird Issuer: ${process.env.FREEBIRD_ISSUER_URL}`);
+  }
+}
+
+function validateRuntimeConfig(): void {
+  if (!isProduction) return;
+
+  const missing = [
+    'PRESTIGE_PRIVATE_KEY',
+    'FREEBIRD_ISSUER_URL',
+    'FREEBIRD_VERIFIER_URL',
+    'WITNESS_URL',
+    'BALLOT_GATE',
+    'VOTER_GATE',
+  ].filter((name) => !process.env[name]);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Refusing to start production Prestige with missing required config: ${missing.join(', ')}`
+    );
+  }
+
+  if (useMocks) {
+    throw new Error('Refusing to start production Prestige with USE_MOCKS=true');
+  }
+
+  const openGates = [process.env.BALLOT_GATE, process.env.VOTER_GATE]
+    .filter((gate) => gate === 'open');
+  if (openGates.length > 0 && process.env.ALLOW_OPEN_GATES_IN_PRODUCTION !== 'true') {
+    throw new Error(
+      'Refusing to start production Prestige with open gates. Set ALLOW_OPEN_GATES_IN_PRODUCTION=true to explicitly allow this public-poll mode.'
+    );
   }
 }
 
@@ -86,8 +117,15 @@ app.use(securityHeaders({
 // CORS
 app.use(cors());
 
-// JSON body parsing
-app.use(express.json());
+// JSON body parsing.
+// Capture the raw request body so signature verification can run over the
+// exact bytes the client signed (preserving field order), rather than a
+// re-serialized version of the parsed object.
+app.use(express.json({
+  verify: (req: Request, _res: Response, buf: Buffer) => {
+    (req as any).rawBody = buf.toString('utf8');
+  },
+}));
 
 // IP anonymization (privacy mode only)
 if (privacyConfig.enabled) {
@@ -207,8 +245,11 @@ app.post('/api/gates/voter/check', async (req: Request, res: Response) => {
 /**
  * POST /api/ballot - Create a new ballot
  *
- * For non-server ballots, include X-Public-Key and X-Signature headers
- * to verify the creator's identity against the ballot gate.
+ * Public API: requires BOTH X-Public-Key and X-Signature headers so the
+ * creator proves possession of the key used for the ballot gate check.
+ * Without this, createBallot would default to the instance identity and
+ * allow anyone to bypass owner/delegation/allowlist-style gates.
+ * Internal/library callers can pass creatorPublicKey directly.
  */
 app.post('/api/ballot', async (req: Request, res: Response) => {
   try {
@@ -222,30 +263,29 @@ app.post('/api/ballot', async (req: Request, res: Response) => {
       voteType: req.body.voteType,
     };
 
-    // Check for client-side signing
+    // Public API requires both headers. Missing or partial headers are
+    // rejected before reaching Prestige.createBallot so the instance
+    // identity is never silently substituted for an unauthenticated caller.
     const publicKey = req.headers['x-public-key'] as string | undefined;
     const signature = req.headers['x-signature'] as string | undefined;
 
-    let creatorPublicKey: string | undefined;
-
-    if (publicKey && signature) {
-      // Verify the request signature
-      const body = JSON.stringify(req.body);
-      const isValid = Crypto.verify(body, signature, publicKey);
-      if (!isValid) {
-        res.status(401).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
-        return;
-      }
-      creatorPublicKey = publicKey;
-    } else if (publicKey) {
-      // Public key without signature — reject for identity-gated operations
-      // to prevent spoofing allowlisted keys without proving key possession.
+    if (!publicKey || !signature) {
       res.status(401).json({
-        error: 'X-Signature header required when X-Public-Key is provided',
+        error: 'X-Public-Key and X-Signature headers are required to create a ballot',
         code: 'SIGNATURE_REQUIRED',
       });
       return;
     }
+
+    // Verify the request signature over the exact raw body the client sent,
+    // so field order and whitespace cannot drift between signing and fetch.
+    const body = (req as any).rawBody ?? JSON.stringify(req.body);
+    const isValid = Crypto.verify(body, signature, publicKey);
+    if (!isValid) {
+      res.status(401).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
+      return;
+    }
+    const creatorPublicKey = publicKey;
 
     // createBallot will check the ballot gate internally
     const ballot = await prestige.createBallot(request, creatorPublicKey);

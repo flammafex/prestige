@@ -116,16 +116,20 @@
         <div id="voting-section" class="hidden">
           <div id="vote-type-label" class="vote-type-label hidden">Single Choice</div>
 
-          <p style="margin-bottom: 1rem; color: var(--text-secondary);">
-            Select your choice. Your vote will be encrypted and anonymous.
-          </p>
+          <div class="alert alert-info" style="margin-bottom: 1rem;">
+            <strong>Your vote is a commitment, not a final ballot.</strong>
+            When you cast your vote, only a cryptographic commitment is sent —
+            your choice stays hidden. Your vote only counts if you return to
+            reveal it after voting ends.
+          </div>
 
           <form id="vote-form">
             <ul class="choice-list" id="choices-list"></ul>
 
-            <div class="alert alert-info" style="margin-top: 1rem;">
-              Your identity is protected by cryptographic blinding.
-              No one will know how you voted.
+            <div class="alert alert-warning" style="margin-top: 1rem;">
+              <strong>Important:</strong> After voting, you must return to this
+              browser to reveal your choice. Do not clear site data or use a
+              different browser/device before reveal, or your vote cannot be counted.
             </div>
 
             <button type="submit" class="btn btn-primary btn-block" id="vote-btn" disabled>
@@ -142,8 +146,16 @@
 
           <div id="just-voted-reveal-notice">
             <p id="just-voted-detail" style="margin: 1rem 0; color: var(--text-secondary);">
-              After voting ends, you'll need to reveal your choice for it to be counted.
-              Your reveal data is stored locally in this browser.
+              Your vote is a commitment — it will only be counted after you reveal
+              your choice when voting ends. Your reveal data is stored locally in
+              this browser. Return to this browser (do not clear site data) before
+              reveal, or your vote cannot be counted.
+            </p>
+          </div>
+
+          <div id="just-voted-reminder-note" class="hidden">
+            <p style="margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--text-muted);">
+              Reminders are local and best-effort: they only fire when this app/browser is running.
             </p>
           </div>
         </div>
@@ -157,13 +169,15 @@
           <div id="pending-vote-sync" class="hidden">
             <p style="margin: 1rem 0; color: var(--text-secondary);">
               Your vote is queued locally and will be synced when you're back online.
+              Return to this browser (do not clear site data) before reveal, or your vote cannot be counted.
             </p>
           </div>
 
           <div id="pending-reveal" class="hidden">
             <p style="margin: 1rem 0; color: var(--text-secondary);">
-              After voting ends, you'll need to reveal your choice for it to be counted.
-              Your reveal data is stored locally.
+              Your vote is a commitment — it only counts after you reveal your
+              choice when voting ends. Your reveal data is stored locally in this
+              browser. Return to this browser (do not clear site data) before reveal.
             </p>
           </div>
         </div>

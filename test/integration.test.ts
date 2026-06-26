@@ -173,7 +173,7 @@ describe('Prestige Integration', () => {
           nullifier: nullifier2,
           proof, // same token replayed
         })
-      ).rejects.toThrow('token has already been used');
+      ).rejects.toThrow('Invalid eligibility proof');
     });
 
     it('should reject concurrent replay of the same eligibility token', async () => {
@@ -212,7 +212,9 @@ describe('Prestige Integration', () => {
       expect(successes).toHaveLength(1);
       expect(failures).toHaveLength(1);
       const replayError = failures[0] as PromiseRejectedResult;
-      expect(String(replayError.reason?.message ?? replayError.reason)).toContain('token has already been used');
+      expect(String(replayError.reason?.message ?? replayError.reason)).toMatch(
+        /Invalid eligibility proof|token has already been used/
+      );
 
       const votes = await prestige.getVotes(ballot.id);
       expect(votes).toHaveLength(1);
@@ -521,8 +523,9 @@ describe('Prestige Integration', () => {
       const token = await prestige.requestEligibilityToken(ballot.id, prestige.identity.publicKey);
 
       expect(token).toBeDefined();
-      expect(token.blindedToken).toBeDefined();
-      expect(token.expiresAt).toBeGreaterThan(Date.now());
+      expect(token.tokenValue).toBeDefined();
+      expect(token.issuerId).toBeDefined();
+      expect(token.version).toBe(4);
     });
   });
 
@@ -563,6 +566,259 @@ describe('Prestige Integration', () => {
       const n2 = prestige.generateNullifier(secret, ballotId);
 
       expect(n1).toBe(n2);
+    });
+  });
+
+  describe('Ballot Creation Creator Authentication (Phase 1)', () => {
+    /**
+     * These tests cover the domain-level behavior that the public /api/ballot
+     * endpoint relies on: createBallot must use the explicitly-provided
+     * creatorPublicKey (verified by the server via X-Public-Key/X-Signature)
+     * rather than silently defaulting to the instance identity, so that
+     * owner/delegation/allowlist gates cannot be bypassed by omitting the
+     * creator key.
+     */
+
+    it('should reject ballot creation when the explicit creator is not the owner', async () => {
+      // createTestPrestige() uses open gates, so build an owner-gated instance.
+      const ownerKeypair = Crypto.generateKeyPair();
+      const otherKeypair = Crypto.generateKeyPair();
+      const ownerPrestige = new Prestige({
+        config: {
+          freebirdIssuerUrl: 'http://mock',
+          freebirdVerifierUrl: 'http://mock',
+          witnessUrl: 'http://mock',
+          hypertokenRelayUrl: 'ws://mock',
+          defaultBallotDurationMinutes: 60,
+          revealWindowMinutes: 60,
+          maxChoices: 10,
+          maxQuestionLength: 200,
+          minDurationMinutes: 1,
+          maxPeers: 10,
+          gossipInterval: 1000,
+          dataDir: './test-data',
+          ballotGate: 'owner',
+          voterGate: 'open',
+        },
+        identity: ownerKeypair,
+        store: new InMemoryStore(),
+        freebird: new MockFreebirdAdapter(),
+        witness: new MockWitnessAdapter(),
+        hypertoken: new MockHyperTokenAdapter(),
+      });
+
+      // Non-owner explicit creator must be rejected by the owner gate.
+      await expect(
+        ownerPrestige.createBallot(
+          { question: 'Test?', choices: ['Yes', 'No'] },
+          otherKeypair.publicKey,
+        )
+      ).rejects.toThrow('Not authorized');
+
+      // Owner explicit creator must succeed.
+      const ballot = await ownerPrestige.createBallot(
+        { question: 'Test?', choices: ['Yes', 'No'] },
+        ownerKeypair.publicKey,
+      );
+      expect(ballot.id).toBeDefined();
+    });
+
+    it('should default to instance identity when creatorPublicKey is omitted (library usage)', async () => {
+      // When called directly as a library (e.g. CLI or internal tooling),
+      // createBallot may omit creatorPublicKey and the instance identity is
+      // used. This is the legitimate non-public-API path; the public HTTP
+      // /api/ballot endpoint now requires X-Public-Key + X-Signature so this
+      // default cannot be reached by unauthenticated API callers.
+      const ballot = await prestige.createBallot({
+        question: 'Library default creator?',
+        choices: ['A', 'B'],
+      });
+      expect(ballot.id).toBeDefined();
+      expect(ballot.status).toBe('voting');
+    });
+  });
+
+  describe('Petition Zero-Signature Status (Phase 1)', () => {
+    it('should return zero-signature petition status instead of null', async () => {
+      // Build a petition-gated instance.
+      const petitionPrestige = new Prestige({
+        config: {
+          freebirdIssuerUrl: 'http://mock',
+          freebirdVerifierUrl: 'http://mock',
+          witnessUrl: 'http://mock',
+          hypertokenRelayUrl: 'ws://mock',
+          defaultBallotDurationMinutes: 60,
+          revealWindowMinutes: 60,
+          maxChoices: 10,
+          maxQuestionLength: 200,
+          minDurationMinutes: 1,
+          maxPeers: 10,
+          gossipInterval: 1000,
+          dataDir: './test-data',
+          ballotGate: 'petition',
+          ballotGatePetitionThreshold: 3,
+          voterGate: 'open',
+        },
+        store: new InMemoryStore(),
+        freebird: new MockFreebirdAdapter(),
+        witness: new MockWitnessAdapter(),
+        hypertoken: new MockHyperTokenAdapter(),
+      });
+
+      const ballot = await petitionPrestige.createBallot({
+        question: 'Petition test?',
+        choices: ['Yes', 'No'],
+      });
+
+      expect(ballot.status).toBe('petition');
+
+      // Zero-signature status must be non-null so the UI can render the
+      // petition section and the first signer can see/sign.
+      const status = await petitionPrestige.getPetitionStatus(ballot.id);
+      expect(status).not.toBeNull();
+      expect(status!.current).toBe(0);
+      expect(status!.required).toBe(3);
+      expect(status!.signatures).toEqual([]);
+      expect(status!.activated).toBe(false);
+
+      // The first signer must be able to sign.
+      const signerKeypair = Crypto.generateKeyPair();
+      const signature = Crypto.sign(ballot.id, signerKeypair.privateKey);
+      const result = await petitionPrestige.signPetition(
+        ballot.id,
+        signerKeypair.publicKey,
+        signature,
+      );
+      expect(result.added).toBe(true);
+      expect(result.status.current).toBe(1);
+      expect(result.activated).toBe(false);
+    });
+
+    it('should return null for getPetitionStatus on a non-existent ballot', async () => {
+      // Build a petition-gated instance.
+      const petitionPrestige = new Prestige({
+        config: {
+          freebirdIssuerUrl: 'http://mock',
+          freebirdVerifierUrl: 'http://mock',
+          witnessUrl: 'http://mock',
+          hypertokenRelayUrl: 'ws://mock',
+          defaultBallotDurationMinutes: 60,
+          revealWindowMinutes: 60,
+          maxChoices: 10,
+          maxQuestionLength: 200,
+          minDurationMinutes: 1,
+          maxPeers: 10,
+          gossipInterval: 1000,
+          dataDir: './test-data',
+          ballotGate: 'petition',
+          ballotGatePetitionThreshold: 3,
+          voterGate: 'open',
+        },
+        store: new InMemoryStore(),
+        freebird: new MockFreebirdAdapter(),
+        witness: new MockWitnessAdapter(),
+        hypertoken: new MockHyperTokenAdapter(),
+      });
+
+      const status = await petitionPrestige.getPetitionStatus('non-existent-ballot-id');
+      expect(status).toBeNull();
+    });
+
+    it('should throw when signing a petition on a non-existent ballot', async () => {
+      const petitionPrestige = new Prestige({
+        config: {
+          freebirdIssuerUrl: 'http://mock',
+          freebirdVerifierUrl: 'http://mock',
+          witnessUrl: 'http://mock',
+          hypertokenRelayUrl: 'ws://mock',
+          defaultBallotDurationMinutes: 60,
+          revealWindowMinutes: 60,
+          maxChoices: 10,
+          maxQuestionLength: 200,
+          minDurationMinutes: 1,
+          maxPeers: 10,
+          gossipInterval: 1000,
+          dataDir: './test-data',
+          ballotGate: 'petition',
+          ballotGatePetitionThreshold: 3,
+          voterGate: 'open',
+        },
+        store: new InMemoryStore(),
+        freebird: new MockFreebirdAdapter(),
+        witness: new MockWitnessAdapter(),
+        hypertoken: new MockHyperTokenAdapter(),
+      });
+
+      const signerKeypair = Crypto.generateKeyPair();
+      const signature = Crypto.sign('non-existent-ballot-id', signerKeypair.privateKey);
+
+      await expect(
+        petitionPrestige.signPetition(
+          'non-existent-ballot-id',
+          signerKeypair.publicKey,
+          signature,
+        ),
+      ).rejects.toThrow();
+    });
+
+    it('should throw when signing a petition on a non-petition ballot', async () => {
+      // Default (open) instance — ballots are created in 'voting' status, not
+      // 'petition'. signPetition must reject these even though the instance
+      // itself is petition-gated... actually we need a petition-gated instance
+      // to reach the ballot lookup, but a ballot that has already activated.
+      const petitionPrestige = new Prestige({
+        config: {
+          freebirdIssuerUrl: 'http://mock',
+          freebirdVerifierUrl: 'http://mock',
+          witnessUrl: 'http://mock',
+          hypertokenRelayUrl: 'ws://mock',
+          defaultBallotDurationMinutes: 60,
+          revealWindowMinutes: 60,
+          maxChoices: 10,
+          maxQuestionLength: 200,
+          minDurationMinutes: 1,
+          maxPeers: 10,
+          gossipInterval: 1000,
+          dataDir: './test-data',
+          ballotGate: 'petition',
+          ballotGatePetitionThreshold: 2,
+          voterGate: 'open',
+        },
+        store: new InMemoryStore(),
+        freebird: new MockFreebirdAdapter(),
+        witness: new MockWitnessAdapter(),
+        hypertoken: new MockHyperTokenAdapter(),
+      });
+
+      const ballot = await petitionPrestige.createBallot({
+        question: 'Petition test?',
+        choices: ['Yes', 'No'],
+      });
+
+      // Collect enough signatures to activate the ballot (move it out of
+      // 'petition' status into 'voting').
+      for (let i = 0; i < 2; i++) {
+        const kp = Crypto.generateKeyPair();
+        const sig = Crypto.sign(ballot.id, kp.privateKey);
+        await petitionPrestige.signPetition(ballot.id, kp.publicKey, sig);
+      }
+
+      // Now the ballot is no longer in petition status — signing again must
+      // throw because the ballot is not a petition ballot anymore.
+      const signerKeypair = Crypto.generateKeyPair();
+      const signature = Crypto.sign(ballot.id, signerKeypair.privateKey);
+
+      await expect(
+        petitionPrestige.signPetition(
+          ballot.id,
+          signerKeypair.publicKey,
+          signature,
+        ),
+      ).rejects.toThrow();
+
+      // And getPetitionStatus must return null for the activated ballot.
+      const status = await petitionPrestige.getPetitionStatus(ballot.id);
+      expect(status).toBeNull();
     });
   });
 });

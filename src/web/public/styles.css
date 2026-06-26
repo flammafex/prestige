@@ -780,3 +780,81 @@ footer a:hover {
     text-align: center;
   }
 }
+
+/* How Prestige Works (collapsible explainer card) */
+.how-it-works-section summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1.05rem;
+  padding: 0.25rem 0;
+  list-style: none;
+}
+
+.how-it-works-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.how-it-works-section summary::before {
+  content: "\25B6";
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+}
+
+.how-it-works-section[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.how-it-works-steps {
+  margin: 1rem 0 0;
+  padding-left: 1.25rem;
+  counter-reset: how-step;
+  list-style: none;
+}
+
+.how-it-works-steps li {
+  position: relative;
+  padding-left: 0.25rem;
+  margin-bottom: 0.85rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  counter-increment: how-step;
+}
+
+.how-it-works-steps li::before {
+  content: counter(how-step);
+  position: absolute;
+  left: -1.5rem;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.how-it-works-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.how-it-works-steps strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* First-run identity notice dismiss button */
+#identity-notice {
+  display: flex;
+  align-items: flex-start;
+}
+
+#identity-notice.hidden {
+  display: none !important;
+}

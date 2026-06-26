@@ -34,7 +34,12 @@ const api = {
 
   // ============= Ballot Operations =============
 
-  async createBallot({
+  /**
+   * Build the exact ballot creation request body object.
+   * Centralized so signing and fetch serialization cannot drift — the caller
+   * signs createBallotBodyString(params) and this method sends the same object.
+   */
+  buildCreateBallotBody({
     question,
     choices,
     durationMinutes,
@@ -42,14 +47,8 @@ const api = {
     eligibility,
     voteType,
     creationToken,
-    creatorPublicKey,
-    creatorSignature,
   }) {
-    const headers = {};
-    if (creatorPublicKey) headers['X-Public-Key'] = creatorPublicKey;
-    if (creatorSignature) headers['X-Signature'] = creatorSignature;
-
-    return this.request('POST', '/api/ballot', {
+    return {
       question,
       choices,
       durationMinutes,
@@ -57,7 +56,26 @@ const api = {
       eligibility,
       voteType,
       creationToken,
-    }, headers);
+    };
+  },
+
+  /**
+   * Return the exact JSON string that createBallot will send for these params.
+   * The caller signs this string with identity.signMessage and passes the
+   * resulting signature as creatorSignature. This guarantees the signature
+   * covers the exact body fetch sends, including field order.
+   */
+  createBallotBodyString(params) {
+    return JSON.stringify(this.buildCreateBallotBody(params));
+  },
+
+  async createBallot({ creatorPublicKey, creatorSignature, ...ballotParams } = {}) {
+    const body = this.buildCreateBallotBody(ballotParams);
+    const headers = {};
+    if (creatorPublicKey) headers['X-Public-Key'] = creatorPublicKey;
+    if (creatorSignature) headers['X-Signature'] = creatorSignature;
+
+    return this.request('POST', '/api/ballot', body, headers);
   },
 
   async getBallot(id) {
@@ -156,15 +174,9 @@ const api = {
     return response.secret;
   },
 
-  async generateCommitment(choice, salt) {
-    const response = await this.request('POST', '/api/crypto/commitment', { choice, salt });
-    return response.commitment;
-  },
-
-  async generateNullifier(voterSecret, ballotId) {
-    const response = await this.request('POST', '/api/crypto/nullifier', { voterSecret, ballotId });
-    return response.nullifier;
-  },
+  // NOTE: /api/crypto/commitment and /api/crypto/nullifier endpoints were
+  // removed (they accepted voterSecret/choice over HTTP, breaking anonymity).
+  // Use window.prestigeCrypto for client-side commitment/nullifier generation.
 
   // ============= Health =============
 

@@ -152,25 +152,9 @@ const prestigeCrypto = {
     return /^[0-9a-f]+$/i.test(hash);
   },
 
-  /**
-   * Sign a message using the private key
-   * Uses server-side signing endpoint for Ed25519
-   */
-  async sign(message, privateKey) {
-    const response = await fetch('/api/crypto/sign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, privateKey }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Signing failed');
-    }
-
-    const data = await response.json();
-    return data.signature;
-  },
+  // NOTE: The sign() helper that posted private keys to /api/crypto/sign has
+  // been removed. Signing must happen client-side via identity.signMessage /
+  // identity.signMessageWithKey (Ed25519). Never send private keys over HTTP.
 };
 
 // Export for use in other scripts

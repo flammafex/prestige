@@ -93,6 +93,10 @@ async function loadBallot() {
       } else {
         showVotingSection();
       }
+
+      // On voting phase load, schedule ballot-ending reminders if
+      // notifications are already granted (non-blocking, best-effort).
+      scheduleBallotEndingReminderIfGranted(status);
     } else if (status.status === 'revealing') {
       // Clear the "just voted" flag when entering reveal phase
       sessionStorage.removeItem(`justVoted-${ballotId}`);
@@ -398,13 +402,19 @@ function updateScore(choice, value, index) {
  * Request a caller-bound eligibility token using signed challenge-response.
  */
 async function requestSignedEligibilityToken() {
-  const userIdentity = await identity.getIdentity();
-  const challengeResponse = await api.requestTokenChallenge(ballotId, userIdentity.publicKey);
+  // Trigger legacy→ed25519 migration (if needed) and obtain the active
+  // public key BEFORE requesting the challenge, so the challenge is bound to
+  // the same key that will sign it. signMessageWithKey may migrate a legacy
+  // identity, changing the active public key; using a stale pre-migration
+  // key for the challenge would cause signature verification to fail.
+  const { publicKey: activePublicKey } = await identity.signMessageWithKey('');
+
+  const challengeResponse = await api.requestTokenChallenge(ballotId, activePublicKey);
   const challengeMessage = challengeResponse.challenge || `token:${ballotId}:${challengeResponse.nonce}`;
-  const signature = await identity.signMessage(challengeMessage, userIdentity);
+  const { publicKey, signature } = await identity.signMessageWithKey(challengeMessage);
 
   return api.requestToken(ballotId, {
-    publicKey: userIdentity.publicKey,
+    publicKey,
     signature,
     nonce: challengeResponse.nonce,
   });
@@ -607,15 +617,88 @@ function showJustVotedSection({ queued = false } = {}) {
     if (queued) {
       messageEl.textContent = 'Your vote was saved offline and queued for sync.';
       detailEl.textContent =
-        "You're offline right now. Your encrypted vote will sync automatically when you're back online.";
+        "You're offline right now. Your encrypted vote will sync automatically when you're back online. " +
+        "Your vote is a commitment — it only counts after you reveal it when voting ends. " +
+        "Return to this browser (do not clear site data) before reveal.";
     } else {
       messageEl.textContent = 'Thank you for voting! Your vote has been recorded.';
       detailEl.textContent =
-        "After voting ends, you'll need to reveal your choice for it to be counted. Your reveal data is stored locally in this browser.";
+        'Your vote is a commitment — it will only be counted after you reveal ' +
+        'your choice when voting ends. Your reveal data is stored locally in ' +
+        'this browser. Return to this browser (do not clear site data) before ' +
+        'reveal, or your vote cannot be counted.';
     }
   }
 
   section.classList.remove('hidden');
+
+  // Schedule a local reveal reminder and offer notification permission
+  // without blocking the vote flow. Reminders are best-effort and only fire
+  // when the app/browser is running.
+  scheduleRevealReminderAfterVote();
+}
+
+/**
+ * Schedule a local reveal reminder for this ballot and, if notifications are
+ * not yet decided, offer permission. This is non-blocking: failures are logged
+ * but never surface to the user or interrupt the vote flow.
+ */
+function scheduleRevealReminderAfterVote() {
+  if (!ballot || !window.notifications) return;
+
+  try {
+    if (ballot.revealDeadline && ballot.revealDeadline > 0) {
+      window.notifications.scheduleRevealReminder(
+        ballotId,
+        ballot.question,
+        ballot.revealDeadline,
+      );
+    }
+
+    // Start the reminder checker if permission is already granted.
+    if (window.notifications.getPermission() === 'granted') {
+      window.notifications.startReminderChecker();
+    } else if (window.notifications.getPermission() === 'default') {
+      // Offer notification permission without blocking. The user can grant or
+      // dismiss; either way the vote has already been cast.
+      window.notifications.requestPermission().then((permission) => {
+        if (permission === 'granted') {
+          window.notifications.startReminderChecker();
+        }
+      }).catch((e) => {
+        console.warn('[Notifications] Permission request failed:', e);
+      });
+    }
+
+    // Show the truthful best-effort reminder note.
+    const note = document.getElementById('just-voted-reminder-note');
+    if (note) note.classList.remove('hidden');
+  } catch (e) {
+    console.warn('[Notifications] Failed to schedule reveal reminder:', e);
+  }
+}
+
+/**
+ * On voting phase load, schedule a ballot-ending reminder if notifications are
+ * already granted. Does not prompt for permission (only post-vote flow prompts).
+ */
+function scheduleBallotEndingReminderIfGranted(status) {
+  if (!window.notifications) return;
+  if (window.notifications.getPermission() !== 'granted') return;
+
+  try {
+    const deadline = status.ballot?.deadline;
+    if (deadline && deadline > Date.now()) {
+      window.notifications.scheduleBallotEndingReminder(
+        ballotId,
+        status.ballot.question,
+        deadline,
+      );
+      window.notifications.startReminderChecker();
+    }
+  } catch (e) {
+    console.warn('[Notifications] Failed to schedule ballot-ending reminder:', e);
+  }
 }
 
 /**
@@ -863,8 +946,8 @@ async function loadPetitionStatus(status) {
   document.getElementById('petition-progress-fill').style.width = `${Math.min(progressPct, 100)}%`;
 
   // Check if user can sign
-  const userIdentity = await identity.getIdentity();
-  const alreadySigned = petitionStatus.signatures.some(s => s.publicKey === userIdentity.publicKey);
+  const activePublicKey = await identity.getActivePublicKey();
+  const alreadySigned = petitionStatus.signatures.some(s => s.publicKey === activePublicKey);
 
   if (alreadySigned) {
     document.getElementById('already-signed-section').classList.remove('hidden');
@@ -872,7 +955,7 @@ async function loadPetitionStatus(status) {
     // Check voter gate
     try {
       const canSign = await api.request('POST', '/api/gates/voter/check', {
-        publicKey: userIdentity.publicKey
+        publicKey: activePublicKey
       });
 
       if (canSign.allowed) {
@@ -908,13 +991,13 @@ async function handleSignPetition() {
   btn.textContent = 'Signing...';
 
   try {
-    const userIdentity = await identity.getIdentity();
-
-    // Sign the ballot ID using the crypto module
-    const signature = await prestigeCrypto.sign(ballotId, userIdentity.privateKey);
+    // Sign the ballot ID client-side with the active identity key.
+    // signMessageWithKey returns the post-migration public key matching the
+    // signature, so they cannot drift. No private key leaves the browser.
+    const { publicKey, signature } = await identity.signMessageWithKey(ballotId);
 
     const result = await api.request('POST', `/api/ballot/${ballotId}/petition`, {
-      publicKey: userIdentity.publicKey,
+      publicKey,
       signature,
     });
 

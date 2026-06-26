@@ -160,9 +160,15 @@ describe('Gate System', () => {
       const gate = new PetitionBallotGate(3, store, proposalGate, voterGate);
       const ballotId = 'test-ballot';
 
-      // Initially no signatures
+      // Initially no signatures — should return a zero-signature status
+      // (not null) so the UI can render the petition section and the first
+      // signer can see/sign.
       const status1 = await gate.getPetitionStatus(ballotId);
-      expect(status1).toBeNull();
+      expect(status1).not.toBeNull();
+      expect(status1!.current).toBe(0);
+      expect(status1!.required).toBe(3);
+      expect(status1!.signatures).toEqual([]);
+      expect(status1!.activated).toBe(false);
 
       // Add first signature
       const keypair1 = Crypto.generateKeyPair();

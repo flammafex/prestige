@@ -97,13 +97,29 @@ function saveReminders(reminders) {
 function scheduleRevealReminder(ballotId, ballotQuestion, revealDeadline) {
   const reminders = getReminders();
 
-  // Remove existing reminder for this ballot
-  const filtered = reminders.filter(r => r.ballotId !== ballotId);
+  // Remove existing reveal reminder for this ballot
+  const filtered = reminders.filter(r => r.ballotId !== ballotId || r.type !== NOTIFICATION_TYPES.REVEAL_REMINDER);
 
-  // Add new reminder (30 minutes before deadline)
-  const reminderTime = revealDeadline - (30 * 60 * 1000);
+  const now = Date.now();
 
-  if (reminderTime > Date.now()) {
+  // Only schedule if the reveal deadline is still in the future.
+  if (revealDeadline > now) {
+    // Default: remind 30 minutes before the deadline.
+    let reminderTime = revealDeadline - (30 * 60 * 1000);
+
+    // Short reveal windows: if 30-minutes-before is already past but the
+    // deadline is still future, schedule a near-term reminder (1 minute from
+    // now) instead of silently skipping. This keeps the in-app warning useful
+    // for short windows (e.g. 15-minute reveal periods).
+    if (reminderTime <= now) {
+      // Clamp to the deadline so the reminder is never scheduled after it.
+      // If the deadline is within a second, fire immediately (now).
+      reminderTime = Math.min(now + (60 * 1000), revealDeadline - 1000);
+      if (reminderTime <= now) {
+        reminderTime = now;
+      }
+    }
+
     filtered.push({
       id: `reveal-${ballotId}`,
       type: NOTIFICATION_TYPES.REVEAL_REMINDER,
@@ -111,7 +127,7 @@ function scheduleRevealReminder(ballotId, ballotQuestion, revealDeadline) {
       ballotQuestion,
       triggerAt: reminderTime,
       deadline: revealDeadline,
-      created: Date.now(),
+      created: now,
     });
 
     saveReminders(filtered);

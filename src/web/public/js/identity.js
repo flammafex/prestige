@@ -9,6 +9,16 @@ const STORE_NAME = 'identity';
 
 let db = null;
 
+// Local storage key recording that the user has acknowledged the
+// first-run identity notice. Set when the notice is dismissed so the
+// notice only ever appears once per browser.
+const IDENTITY_ACK_KEY = 'prestige-identity-acknowledged';
+
+// Set transiently during this page load when getIdentity() generates a
+// brand-new identity. Reset on every initIdentity() call so it reflects
+// the most recent initialization.
+let createdNewIdentity = false;
+
 /**
  * Open the IndexedDB database
  */
@@ -82,6 +92,7 @@ async function getIdentity() {
     // Generate new identity using Web Crypto API
     identity = await generateIdentity();
     await setValue('identity', identity);
+    createdNewIdentity = true;
     console.log('Generated new identity:', identity.publicKey.slice(0, 16) + '...');
   }
 
@@ -221,9 +232,11 @@ async function markRevealQueued(ballotId) {
 }
 
 /**
- * Sign a challenge message with the local identity key
+ * Resolve the active (post-migration) identity for a given optional identity.
+ * Legacy (non-ed25519) identities are migrated to ed25519 so signatures can
+ * be verified server-side. The migrated identity is persisted.
  */
-async function signMessage(message, identityData = null) {
+async function getActiveIdentity(identityData = null) {
   let activeIdentity = identityData ?? await getIdentity();
 
   // Migrate legacy identities so challenge signatures can be verified server-side.
@@ -232,6 +245,48 @@ async function signMessage(message, identityData = null) {
     await setValue('identity', activeIdentity);
   }
 
+  return activeIdentity;
+}
+
+/**
+ * Resolve and return just the active (post-migration) public key.
+ *
+ * Use this instead of getIdentity() whenever the caller needs the public key
+ * that the server will see alongside a signature: getIdentity() may return a
+ * stale legacy (pre-migration) public key, which would hide create/sign UI
+ * actions incorrectly. This helper triggers the same legacy→ed25519 migration
+ * as getActiveIdentity()/signMessageWithKey() without signing anything.
+ */
+async function getActivePublicKey(identityData = null) {
+  const activeIdentity = await getActiveIdentity(identityData);
+  return activeIdentity.publicKey;
+}
+
+/**
+ * Sign a challenge message with the local identity key
+ */
+async function signMessage(message, identityData = null) {
+  const activeIdentity = await getActiveIdentity(identityData);
+  return signWithIdentity(message, activeIdentity);
+}
+
+/**
+ * Sign a challenge message and return both the signature and the active
+ * (post-migration) public key. Callers that need to send the public key
+ * alongside the signature MUST use this helper so the key matches the
+ * signature — signMessage can migrate legacy identities, which changes
+ * the active public key after signing.
+ */
+async function signMessageWithKey(message, identityData = null) {
+  const activeIdentity = await getActiveIdentity(identityData);
+  const signature = await signWithIdentity(message, activeIdentity);
+  return { publicKey: activeIdentity.publicKey, signature };
+}
+
+/**
+ * Internal: sign a message with a resolved ed25519 identity keypair.
+ */
+async function signWithIdentity(message, activeIdentity) {
   const privateJwk = {
     kty: 'OKP',
     crv: 'Ed25519',
@@ -301,6 +356,9 @@ function hexToBase64Url(hex) {
  * Initialize identity on page load
  */
 async function initIdentity() {
+  // Reset the per-load creation flag before resolving the identity so it
+  // reflects whether THIS initialization created a new identity.
+  createdNewIdentity = false;
   try {
     const identity = await getIdentity();
     console.log('Identity loaded:', identity.publicKey.slice(0, 16) + '...');
@@ -308,6 +366,42 @@ async function initIdentity() {
   } catch (error) {
     console.error('Failed to initialize identity:', error);
     throw error;
+  }
+}
+
+/**
+ * Whether the most recent initIdentity()/getIdentity() call generated a
+ * brand-new identity (i.e. this is the first time this browser has run
+ * Prestige). Resets at the start of each initIdentity() call.
+ */
+function wasNewlyCreated() {
+  return createdNewIdentity;
+}
+
+/**
+ * True when the first-run identity notice should be shown: a new identity
+ * was created during this page load AND the user has not yet acknowledged
+ * the notice. Existing users (who already had an identity) never see it.
+ */
+function shouldShowFirstRunNotice() {
+  if (!createdNewIdentity) return false;
+  try {
+    return !localStorage.getItem(IDENTITY_ACK_KEY);
+  } catch {
+    // localStorage may be unavailable (private mode); err on showing.
+    return true;
+  }
+}
+
+/**
+ * Mark the first-run identity notice as acknowledged so it does not
+ * reappear on future page loads.
+ */
+function acknowledgeIdentity() {
+  try {
+    localStorage.setItem(IDENTITY_ACK_KEY, '1');
+  } catch {
+    // Ignore storage failures (private mode, quota); notice may reappear.
   }
 }
 
@@ -323,6 +417,11 @@ if (typeof window !== 'undefined') {
     markVoteSynced,
     markRevealQueued,
     signMessage,
+    signMessageWithKey,
+    getActivePublicKey,
     initIdentity,
+    wasNewlyCreated,
+    shouldShowFirstRunNotice,
+    acknowledgeIdentity,
   };
 }

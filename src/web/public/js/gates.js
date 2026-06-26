@@ -11,15 +11,15 @@ const gates = {
    * Load gate info and check user eligibility
    */
   async load() {
-    const userIdentity = await window.identity.getIdentity();
+    const publicKey = await window.identity.getActivePublicKey();
 
     // Get gate configuration
     this.info = await api.request('GET', '/api/gates');
 
     // Check user's eligibility
     const [ballotCheck, voterCheck] = await Promise.all([
-      api.request('POST', '/api/gates/ballot/check', { publicKey: userIdentity.publicKey }),
-      api.request('POST', '/api/gates/voter/check', { publicKey: userIdentity.publicKey }),
+      api.request('POST', '/api/gates/ballot/check', { publicKey }),
+      api.request('POST', '/api/gates/voter/check', { publicKey }),
     ]);
 
     this.userStatus = {
