@@ -14,6 +14,32 @@ export interface KeyPair {
   privateKey: PrivateKey;
 }
 
+export type SophiaWitnessSignatures =
+  | {
+      kind: 'multisig';
+      signatures: Array<{
+        witness_id: string;
+        signature: Signature;
+      }>;
+    }
+  | {
+      kind: 'aggregated';
+      signature: Signature;
+      signers: string[];
+    };
+
+export interface SophiaWitnessSignedAttestation {
+  contract_version: 'sophia/v1';
+  artifact_type: 'witness.signed_attestation';
+  attestation: {
+    hash: Hash;
+    timestamp: number;
+    network_id: string;
+    sequence: number;
+  };
+  signatures: SophiaWitnessSignatures;
+}
+
 // Witness attestation - proves timestamp via BFT consensus
 export interface WitnessAttestation {
   hash: Hash;
@@ -32,18 +58,24 @@ export interface WitnessAttestation {
   signatureType?: 'multisig' | 'aggregated';
   /** Raw aggregated BLS signature (hex). Only set when signatureType === 'aggregated'. */
   aggregatedSignature?: string;
+  /** Canonical Sophia v1 Witness artifact returned by the adapter boundary. */
+  canonical?: SophiaWitnessSignedAttestation;
 }
 
 // Freebird token - proves eligibility without revealing identity
 export interface FreebirdToken {
-  /** Base64url-encoded V3 redemption token (self-contained) */
+  /** Base64url-encoded Freebird redemption token */
   tokenValue: string;
-  /** Issuer ID that minted this token (e.g. issuer:prod:v1) */
+  /** Issuer ID that minted this token (e.g. issuer:prod:v4) */
   issuerId?: string;
-  /** Expiration time in milliseconds since epoch (SDK uses Unix seconds as `expiration`) */
-  expiresAt: number;
-  /** Key identifier for rotation */
+  /** Token wire version */
+  version?: 4 | 5;
+  /** V4 key identifier for rotation */
   kid?: string;
+  /** V5 public bearer token key ID */
+  tokenKeyId?: string;
+  /** Legacy token expiration time in milliseconds since epoch */
+  expiresAt?: number;
 }
 
 /**
@@ -55,7 +87,7 @@ export type FreebirdSybilProof =
   | { type: 'rate_limit'; client_id: string; timestamp: number }
   | { type: 'invitation'; code: string; signature: string }
   | { type: 'registered_user'; user_id: string }
-  | { type: 'webauthn'; username: string; auth_proof: string; timestamp: number }
+  | { type: 'webauthn'; subject_hash: string; auth_proof: string; timestamp: number }
   | { type: 'progressive_trust'; user_id_hash: string; first_seen: number; tokens_issued: number; last_issuance: number; hmac_proof: string }
   | { type: 'proof_of_diversity'; user_id_hash: string; diversity_score: number; unique_networks: number; unique_devices: number; first_seen: number; hmac_proof: string }
   | { type: 'multi_party_vouching'; vouchee_id_hash: string; vouches: VouchProof[]; hmac_proof: string; timestamp: number }
@@ -74,11 +106,13 @@ export interface VouchProof {
 
 // Optional token used when ballot gate is set to "freebird"
 export interface BallotCreationToken {
-  /** Base64url-encoded V3 redemption token (self-contained) */
+  /** Base64url-encoded Freebird redemption token */
   tokenValue: string;
   issuerId: string;
-  expiresAt: number;
+  version?: 4 | 5;
+  expiresAt?: number;
   kid?: string;
+  tokenKeyId?: string;
 }
 
 // Ballot eligibility configuration (per-ballot, can restrict but not expand instance voter gate)

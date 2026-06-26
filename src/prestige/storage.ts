@@ -446,10 +446,11 @@ export class InMemoryStore implements PrestigeStore {
 
   async saveVote(vote: Vote): Promise<void> {
     const votes = this.votes.get(vote.ballotId) ?? [];
-    if (!votes.find(v => v.nullifier === vote.nullifier)) {
-      votes.push(vote);
-      this.votes.set(vote.ballotId, votes);
+    if (votes.find(v => v.nullifier === vote.nullifier)) {
+      throw new Error('DOUBLE_VOTE: nullifier already used on this ballot');
     }
+    votes.push(vote);
+    this.votes.set(vote.ballotId, votes);
   }
 
   async getVotesByBallot(ballotId: string): Promise<Vote[]> {

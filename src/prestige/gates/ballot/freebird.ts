@@ -36,20 +36,23 @@ export class FreebirdBallotGate implements BallotGate {
       };
     }
 
-    // Check expiration
-    if (token.expiresAt < Date.now()) {
+    // Check legacy token expiration if present. Current Freebird V4 tokens
+    // are verifier-scoped and do not carry an expiry in the client token.
+    if (token.expiresAt !== undefined && token.expiresAt < Date.now()) {
       return {
         allowed: false,
         reason: 'Ballot creation token expired',
       };
     }
 
-    // Verify the V3 token with Freebird
+    // Verify the token with Freebird
     const valid = await this.freebird.verify({
       tokenValue: token.tokenValue,
       issuerId: token.issuerId,
       expiresAt: token.expiresAt,
+      version: token.version,
       kid: token.kid,
+      tokenKeyId: token.tokenKeyId,
     });
 
     return {

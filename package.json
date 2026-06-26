@@ -15,6 +15,7 @@
     "web": "node --env-file=.env dist/web/server.js",
     "cli": "node dist/cli/index.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:live": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --testMatch '**/test/live-services.contract.ts'",
     "test:integration": "npm test -- --testPathPattern=integration",
     "lint": "eslint src/",
     "generate-icons": "node scripts/generate-icons.js"

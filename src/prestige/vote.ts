@@ -430,8 +430,10 @@ export class VoteManager {
     return Crypto.hash(
       token.tokenValue,
       token.issuerId ?? '',
+      String(token.version ?? ''),
       token.kid ?? '',
-      String(token.expiresAt)
+      token.tokenKeyId ?? '',
+      String(token.expiresAt ?? '')
     );
   }
 }

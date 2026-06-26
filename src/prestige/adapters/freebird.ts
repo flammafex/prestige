@@ -21,13 +21,11 @@ export interface FreebirdConfig {
 }
 
 /**
- * Issue response from Freebird API (V3)
+ * Issue response from Freebird API (V4)
  */
 interface IssueResponse {
   token: string;
-  sig: string;
   kid: string;
-  exp: number;
   issuer_id: string;
   sybil_info?: {
     required: boolean;
@@ -46,8 +44,17 @@ interface IssuerMetadata {
     suite: string;
     kid: string;
     pubkey: string;  // Base64url encoded SEC1 compressed point
-    exp_sec: number;
   };
+}
+
+/**
+ * Verifier metadata from /.well-known/verifier.
+ * V4 tokens are bound to this verifier/audience scope.
+ */
+interface VerifierMetadata {
+  verifier_id: string;
+  audience: string;
+  scope_digest_b64: string;
 }
 
 export interface FreebirdAdapter {
@@ -85,45 +92,88 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
   private readonly context: Uint8Array;
   private blindStates: Map<string, BlindState> = new Map();
   private metadata: IssuerMetadata | null = null;
+  private verifierMetadata: VerifierMetadata | null = null;
 
   constructor(private config: FreebirdConfig) {
     this.timeout = config.timeout ?? 10000;
     // Context must match Freebird server
-    this.context = new TextEncoder().encode('freebird:v1');
+    this.context = new TextEncoder().encode('freebird:v4');
   }
 
   /**
    * Fetch issuer metadata (public key, etc.)
    */
   private async init(): Promise<void> {
-    if (this.metadata) return;
+    if (this.metadata && this.verifierMetadata) return;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(`${this.config.issuerUrl}/.well-known/issuer`, {
-        signal: controller.signal,
-      });
+      if (!this.metadata) {
+        const response = await fetch(`${this.config.issuerUrl}/.well-known/issuer`, {
+          signal: controller.signal,
+        });
 
-      if (response.ok) {
-        const metadata = await response.json() as IssuerMetadata;
+        if (response.ok) {
+          const metadata = await response.json() as IssuerMetadata;
 
-        // Validate required fields
-        if (!metadata.voprf?.pubkey) {
+          // Validate required fields
+          if (!metadata.issuer_id || !metadata.voprf?.kid || !metadata.voprf?.pubkey) {
+            throw new FreebirdError(
+              'Issuer metadata missing required issuer_id/voprf fields',
+              'INIT_FAILED'
+            );
+          }
+
+          this.metadata = metadata;
+          console.log(`[Freebird] Connected to issuer: ${metadata.issuer_id || 'unknown'}`);
+        } else {
           throw new FreebirdError(
-            'Issuer metadata missing required voprf.pubkey field',
+            `Failed to fetch issuer metadata: ${response.status}`,
             'INIT_FAILED'
           );
         }
+      }
 
-        this.metadata = metadata;
-        console.log(`[Freebird] Connected to issuer: ${metadata.issuer_id || 'unknown'}`);
-      } else {
-        throw new FreebirdError(
-          `Failed to fetch issuer metadata: ${response.status}`,
-          'INIT_FAILED'
-        );
+      if (!this.verifierMetadata) {
+        const response = await fetch(`${this.config.verifierUrl}/.well-known/verifier`, {
+          signal: controller.signal,
+        });
+
+        if (response.ok) {
+          const verifierMetadata = await response.json() as VerifierMetadata;
+          if (
+            !verifierMetadata.verifier_id ||
+            !verifierMetadata.audience ||
+            !verifierMetadata.scope_digest_b64
+          ) {
+            throw new FreebirdError(
+              'Verifier metadata missing required verifier_id/audience/scope fields',
+              'INIT_FAILED'
+            );
+          }
+
+          const scopeDigest = voprf.base64UrlToBytes(verifierMetadata.scope_digest_b64);
+          const expectedScopeDigest = voprf.buildScopeDigest(
+            verifierMetadata.verifier_id,
+            verifierMetadata.audience
+          );
+          if (!bytesEqual(scopeDigest, expectedScopeDigest)) {
+            throw new FreebirdError(
+              'Verifier scope metadata is inconsistent',
+              'INIT_FAILED'
+            );
+          }
+
+          this.verifierMetadata = verifierMetadata;
+          console.log(`[Freebird] Connected to verifier: ${verifierMetadata.verifier_id}`);
+        } else {
+          throw new FreebirdError(
+            `Failed to fetch verifier metadata: ${response.status}`,
+            'INIT_FAILED'
+          );
+        }
       }
     } finally {
       clearTimeout(timeoutId);
@@ -133,15 +183,22 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
   /**
    * Issue a token via VOPRF protocol
    */
-  async issue(input: string, options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken> {
+  async issue(_context: string, options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken> {
     await this.init();
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      // 1. Blind the input client-side
-      const inputBytes = new TextEncoder().encode(input);
+      // 1. Build and blind the V4 private-token input.
+      const nonce = crypto.getRandomValues(new Uint8Array(32));
+      const scopeDigest = voprf.base64UrlToBytes(this.verifierMetadata!.scope_digest_b64);
+      const inputBytes = voprf.buildPrivateTokenInput(
+        this.metadata!.issuer_id,
+        this.metadata!.voprf.kid,
+        nonce,
+        scopeDigest
+      );
       const { blinded, state } = voprf.blind(inputBytes, this.context);
 
       // Store blind state for potential finalization
@@ -157,7 +214,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           blinded_element_b64: voprf.bytesToBase64Url(blinded),
-          sybil_proof: options?.sybilProof ?? { type: 'none' }, // MVP fallback when no proof is provided
+          sybil_proof: options?.sybilProof,
         }),
         signal: controller.signal,
       });
@@ -171,8 +228,17 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
       }
 
       const data = await response.json() as IssueResponse;
+      if (
+        data.kid !== this.metadata!.voprf.kid ||
+        data.issuer_id !== this.metadata!.issuer_id
+      ) {
+        throw new FreebirdError(
+          'Issuer metadata changed during issuance',
+          'ISSUE_FAILED'
+        );
+      }
 
-      // 3. Verify DLEQ proof, unblind, and build V3 redemption token
+      // 3. Verify DLEQ proof, unblind, and build a V4 redemption token.
       const output = voprf.finalize(
         state, data.token, this.metadata!.voprf.pubkey, this.context
       );
@@ -180,17 +246,19 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
       // Clean up blind state
       this.blindStates.delete(blindedHex);
 
-      const sigBytes = base64UrlToBytes(data.sig);
-      const issuerId = data.issuer_id ?? this.metadata?.issuer_id ?? '';
       const redemptionToken = voprf.buildRedemptionToken(
-        output, data.kid, BigInt(data.exp), issuerId, sigBytes
+        nonce,
+        scopeDigest,
+        data.kid,
+        data.issuer_id,
+        output
       );
 
-      // 4. Return V3 token
+      // 4. Return V4 token
       return {
         tokenValue: voprf.bytesToBase64Url(redemptionToken),
-        issuerId,
-        expiresAt: data.exp * 1000, // Convert Unix seconds to milliseconds
+        issuerId: data.issuer_id,
+        version: 4,
         kid: data.kid,
       };
     } finally {
@@ -202,8 +270,8 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
    * Verify a token with the verifier service
    */
   async verify(token: FreebirdToken): Promise<boolean> {
-    // Check expiration locally first
-    if (token.expiresAt < Date.now()) {
+    // Current V4 tokens do not carry an expiry. Honor legacy tokens that do.
+    if (token.expiresAt !== undefined && token.expiresAt < Date.now()) {
       return false;
     }
 
@@ -212,7 +280,7 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
     const url = `${this.config.verifierUrl}/v1/verify`;
 
     try {
-      // V3 tokens are self-contained — verifier only needs the token itself
+      // V4/V5 tokens are self-contained — verifier only needs the token itself.
       console.log(`[Freebird] POST ${url}`);
       const response = await fetch(url, {
         method: 'POST',
@@ -242,8 +310,8 @@ export class HttpFreebirdAdapter implements FreebirdAdapter {
    * Uses /v1/check — token remains usable afterward.
    */
   async check(token: FreebirdToken): Promise<boolean> {
-    // Check expiration locally first
-    if (token.expiresAt < Date.now()) {
+    // Current V4 tokens do not carry an expiry. Honor legacy tokens that do.
+    if (token.expiresAt !== undefined && token.expiresAt < Date.now()) {
       return false;
     }
 
@@ -307,7 +375,8 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
   async issue(context: string, _options?: { sybilProof?: FreebirdSybilProof }): Promise<FreebirdToken> {
     const token: FreebirdToken = {
       tokenValue: `mock-token-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      issuerId: 'mock-issuer:v1',
+      issuerId: 'mock-issuer:v4',
+      version: 4,
       expiresAt: Date.now() + this.tokenTTL,
     };
 
@@ -317,7 +386,7 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
 
   async verify(token: FreebirdToken): Promise<boolean> {
     // Check expiration
-    if (token.expiresAt < Date.now()) {
+    if (token.expiresAt !== undefined && token.expiresAt < Date.now()) {
       return false;
     }
 
@@ -331,7 +400,7 @@ export class MockFreebirdAdapter implements FreebirdAdapter {
 
   async check(token: FreebirdToken): Promise<boolean> {
     // Check expiration
-    if (token.expiresAt < Date.now()) {
+    if (token.expiresAt !== undefined && token.expiresAt < Date.now()) {
       return false;
     }
 
@@ -366,7 +435,11 @@ function bytesToHex(bytes: Uint8Array): string {
     .join('');
 }
 
-function base64UrlToBytes(base64: string): Uint8Array {
-  const binString = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from(binString, (m) => m.codePointAt(0)!);
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
 }

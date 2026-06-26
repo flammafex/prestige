@@ -62,6 +62,16 @@ export class Crypto {
   }
 
   /**
+   * Derive the Ed25519 public key for a hex-encoded private key
+   */
+  static publicKeyFromPrivateKey(privateKey: PrivateKey): PublicKey {
+    if (!this.isValidPrivateKey(privateKey)) {
+      throw new Error('Invalid private key format');
+    }
+    return bytesToHex(ed25519.getPublicKey(hexToBytes(privateKey)));
+  }
+
+  /**
    * Sign a message with Ed25519
    */
   static sign(message: string | Uint8Array, privateKey: PrivateKey): Signature {
@@ -189,6 +199,15 @@ export class Crypto {
    * Validate a public key format
    */
   static isValidPublicKey(key: string): boolean {
+    if (typeof key !== 'string') return false;
+    if (key.length !== 64) return false;  // 32 bytes = 64 hex chars
+    return /^[0-9a-f]+$/i.test(key);
+  }
+
+  /**
+   * Validate a private key format
+   */
+  static isValidPrivateKey(key: string): boolean {
     if (typeof key !== 'string') return false;
     if (key.length !== 64) return false;  // 32 bytes = 64 hex chars
     return /^[0-9a-f]+$/i.test(key);

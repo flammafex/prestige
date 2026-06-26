@@ -109,12 +109,16 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
   private peers: Map<string, PeerConnection> = new Map();
   private reconnectAttempts = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private connectTimeout: NodeJS.Timeout | null = null;
   private connected = false;
   private peerId: string | null = null;
+  private intentionalDisconnect = false;
 
   constructor(private config: HyperTokenConfig) {}
 
   async connect(): Promise<void> {
+    this.intentionalDisconnect = false;
+
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(this.config.relayUrl);
@@ -137,6 +141,7 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
               console.log(`[HyperToken] Connected as ${this.peerId} (${welcome.clientCount} peers)`);
               if (!welcomeReceived) {
                 welcomeReceived = true;
+                this.clearConnectTimeout();
                 resolve();
               }
               return;
@@ -172,10 +177,13 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
         this.ws.onclose = () => {
           this.connected = false;
           this.peerId = null;
-          this.handleDisconnect();
+          if (!this.intentionalDisconnect) {
+            this.handleDisconnect();
+          }
         };
 
         this.ws.onerror = () => {
+          this.clearConnectTimeout();
           const errorMessage = `WebSocket connection failed to ${this.config.relayUrl}`;
           if (!this.connected) {
             reject(new Error(errorMessage));
@@ -184,7 +192,8 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
         };
 
         // Timeout if we don't get welcome message
-        setTimeout(() => {
+        this.connectTimeout = setTimeout(() => {
+          this.connectTimeout = null;
           if (!welcomeReceived && this.connected) {
             // Old server without welcome message - still resolve
             console.log('[HyperToken] Connected (no welcome message)');
@@ -198,6 +207,9 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
   }
 
   disconnect(): void {
+    this.intentionalDisconnect = true;
+    this.clearConnectTimeout();
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -296,6 +308,13 @@ export class WebSocketHyperTokenAdapter implements HyperTokenAdapter {
       } catch (e) {
         console.error('[HyperToken] Message handler error:', e);
       }
+    }
+  }
+
+  private clearConnectTimeout(): void {
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout);
+      this.connectTimeout = null;
     }
   }
 
