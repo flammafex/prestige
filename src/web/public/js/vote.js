@@ -374,9 +374,9 @@ function updateRankedDisplay() {
       <span class="rank-number">${index + 1}</span>
       <span class="choice-text">${escapeHtml(choice)}</span>
       <div class="rank-controls">
-        <button type="button" class="rank-btn" data-action="move-up" data-index="${index}" ${index === 0 ? 'disabled' : ''}>&#9650;</button>
-        <button type="button" class="rank-btn" data-action="move-down" data-index="${index}" ${index >= rankedChoices.length - 1 ? 'disabled' : ''}>&#9660;</button>
-        <button type="button" class="rank-btn remove" data-action="remove-rank" data-index="${index}">&#10005;</button>
+        <button type="button" class="rank-btn" data-action="move-up" data-index="${index}" aria-label="Move up" ${index === 0 ? 'disabled' : ''}>&#9650;</button>
+        <button type="button" class="rank-btn" data-action="move-down" data-index="${index}" aria-label="Move down" ${index >= rankedChoices.length - 1 ? 'disabled' : ''}>&#9660;</button>
+        <button type="button" class="rank-btn remove" data-action="remove-rank" data-index="${index}" aria-label="Remove from ranking">&#10005;</button>
       </div>
     </li>
   `).join('');
@@ -520,7 +520,7 @@ async function handleVoteSubmit(e) {
       }
     }
 
-    alert('Error casting vote: ' + error.message);
+    ui.showToast(ui.humanizeError(error), 'error');
     btn.disabled = false;
     btn.textContent = 'Cast Vote';
   }
@@ -530,17 +530,20 @@ async function handleVoteSubmit(e) {
  * Validate vote selection based on type
  */
 function validateVoteSelection(voteType) {
+  // Clear any previously shown inline validation errors first.
+  ui.clearInlineError('vote-btn');
+
   switch (voteType) {
     case 'single':
       if (!selectedChoice) {
-        alert('Please select a choice');
+        ui.showInlineError('vote-btn', 'Please select a choice.');
         return false;
       }
       return true;
 
     case 'approval':
       if (selectedChoices.length === 0) {
-        alert('Please select at least one choice');
+        ui.showInlineError('vote-btn', 'Please select at least one choice.');
         return false;
       }
       return true;
@@ -548,7 +551,7 @@ function validateVoteSelection(voteType) {
     case 'ranked':
       const minRankings = ballot.voteType?.minRankings ?? 1;
       if (rankedChoices.length < minRankings) {
-        alert(`Please rank at least ${minRankings} choice(s)`);
+        ui.showInlineError('vote-btn', `Please rank at least ${minRankings} choice${minRankings === 1 ? '' : 's'}.`);
         return false;
       }
       return true;
@@ -837,7 +840,7 @@ async function handleRevealSubmit() {
       }
     }
 
-    alert('Error revealing vote: ' + error.message);
+    ui.showToast(ui.humanizeError(error), 'error');
     btn.disabled = false;
     btn.textContent = 'Reveal My Vote';
   }
@@ -1002,9 +1005,9 @@ async function handleSignPetition() {
     });
 
     if (result.activated) {
-      // Ballot is now active! Reload page
-      alert('Petition threshold reached! Voting is now open.');
-      location.reload();
+      // Ballot is now active! Reload page after a brief confirmation toast.
+      ui.showToast('Petition threshold reached. Voting is now open.', 'success');
+      setTimeout(() => location.reload(), 1200);
     } else {
       // Update UI
       document.getElementById('can-sign-section').classList.add('hidden');
@@ -1016,7 +1019,7 @@ async function handleSignPetition() {
     }
 
   } catch (error) {
-    alert('Error signing petition: ' + error.message);
+    ui.showToast(ui.humanizeError(error), 'error');
     btn.disabled = false;
     btn.textContent = 'Sign Petition';
   }

@@ -60,50 +60,6 @@
       "purpose": "any maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "/screenshot-wide.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Prestige voting dashboard"
-    },
-    {
-      "src": "/screenshot-narrow.png",
-      "sizes": "640x1136",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Prestige mobile voting"
-    }
-  ],
-  "shortcuts": [
-    {
-      "name": "Create Ballot",
-      "short_name": "Create",
-      "description": "Create a new anonymous ballot",
-      "url": "/?action=create",
-      "icons": [
-        {
-          "src": "/icon-96.png",
-          "sizes": "96x96",
-          "type": "image/png"
-        }
-      ]
-    },
-    {
-      "name": "My Votes",
-      "short_name": "Votes",
-      "description": "View your pending votes and reveals",
-      "url": "/?action=votes",
-      "icons": [
-        {
-          "src": "/icon-96.png",
-          "sizes": "96x96",
-          "type": "image/png"
-        }
-      ]
-    }
-  ],
   "related_applications": [],
   "prefer_related_applications": false,
   "handle_links": "preferred",

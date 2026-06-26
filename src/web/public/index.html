@@ -40,7 +40,7 @@
   <style>.skip-link:focus { left: 0; }</style>
   <div class="container">
     <header>
-      <img src="prestige.webp" width=600>
+      <img src="prestige.webp" width=600 alt="Prestige">
       <p class="tagline">Secret ballot. Public proof.</p>
     </header>
 
@@ -402,6 +402,7 @@
   <script src="/js/pwa.js"></script>
 
   <!-- App Scripts -->
+  <script src="/js/ui.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/identity.js"></script>
   <script src="/js/crypto.js"></script>
@@ -540,7 +541,7 @@
         // Reload ballots list
         loadRecentBallots();
       } catch (error) {
-        alert('Error creating ballot: ' + error.message);
+        ui.showToast(ui.humanizeError(error), 'error');
       } finally {
         btn.disabled = false;
         btn.textContent = 'Create Ballot';
