@@ -82,7 +82,11 @@ export function securityHeaders(config: Partial<SecurityConfig> = {}): RequestHa
     }
 
     // Cross-Origin policies
-    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    // COOP: same-origin-allow-popups preserves window.opener for popups opened
+    // by this page (e.g. the Freebird WebAuthn passkey flow), while still
+    // isolating the browsing context from cross-origin embeds. Full same-origin
+    // would sever window.opener, breaking the postMessage handoff.
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
 
     // Onion-Location for Tor hidden service

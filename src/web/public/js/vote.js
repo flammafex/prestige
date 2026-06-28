@@ -32,8 +32,11 @@ function isOfflineError(error) {
  * popup back to Prestige with the proof in the URL fragment:
  *   #state=<nonce>&sybil_proof=<json>
  *
- * If we detect this fragment and have an opener, we forward the proof via
- * postMessage (same-origin, so window.opener is reliable) and close the popup.
+ * If we detect this fragment, we try to deliver the proof to the opener window:
+ * 1. Via postMessage if window.opener is available (same-origin after redirect)
+ * 2. Via localStorage as a fallback (works even when COOP severs window.opener)
+ *
+ * In both cases, the proof is cleaned up immediately after delivery.
  */
 function handleWebAuthnReturn() {
   const hash = window.location.hash.slice(1);
@@ -54,11 +57,21 @@ function handleWebAuthnReturn() {
     return;
   }
 
+  // Path 1: postMessage to opener (works when COOP allows it).
   if (window.opener) {
     window.opener.postMessage(
       { type: 'freebird.webauthn_proof', proof, state, viaRedirect: true },
       window.location.origin
     );
+  }
+
+  // Path 2: localStorage fallback (works even when COOP severs window.opener).
+  // The opener window listens for the 'storage' event and picks this up.
+  // Cleaned up immediately by the receiver.
+  try {
+    localStorage.setItem('prestige:webauthn_proof', JSON.stringify({ proof, state }));
+  } catch {
+    // localStorage might be unavailable (private browsing, etc.)
   }
 
   // Show a minimal "closing" page in the popup.
@@ -649,18 +662,20 @@ async function verifyWithPasskey() {
   // back to Prestige and handleWebAuthnReturn forwards the proof).
   const ownOrigin = window.location.origin;
 
-  const messageListener = (event) => {
-    if (event.origin !== expectedOrigin && event.origin !== ownOrigin) return;
-    if (event.data?.type !== 'freebird.webauthn_proof') return;
-    // Validate the state nonce to ensure this proof is for THIS request.
-    if (event.data.state !== state) return;
-
-    window.removeEventListener('message', messageListener);
+  // Shared handler for receiving the proof, regardless of delivery path.
+  function receiveProof(proof, proofState) {
     if (settled) return;
+    if (proofState !== state) return;
+
     settled = true;
+    window.removeEventListener('message', messageListener);
+    window.removeEventListener('storage', storageListener);
     clearInterval(closedCheck);
 
-    sybilProof = event.data.proof || null;
+    // Clean up localStorage if the proof was delivered via the fallback.
+    try { localStorage.removeItem('prestige:webauthn_proof'); } catch {}
+
+    sybilProof = proof || null;
     passkeyVerified = !!sybilProof;
 
     if (passkeyVerified) {
@@ -680,27 +695,60 @@ async function verifyWithPasskey() {
       }
     }
     updateVoteButtonEnabled();
+  }
+
+  // Path 1: direct postMessage from the issuer (works when COOP allows window.opener).
+  const messageListener = (event) => {
+    if (event.origin !== expectedOrigin && event.origin !== ownOrigin) return;
+    if (event.data?.type !== 'freebird.webauthn_proof') return;
+    receiveProof(event.data.proof, event.data.state);
+  };
+
+  // Path 2: localStorage fallback (works even when COOP severs window.opener).
+  // When the popup navigates back to Prestige via return_to, handleWebAuthnReturn()
+  // writes the proof to localStorage. The 'storage' event fires in this window.
+  const storageListener = (event) => {
+    if (event.key !== 'prestige:webauthn_proof') return;
+    if (!event.newValue) return;
+    try {
+      const data = JSON.parse(event.newValue);
+      receiveProof(data.proof, data.state);
+    } catch {}
   };
 
   window.addEventListener('message', messageListener);
+  window.addEventListener('storage', storageListener);
 
   // Detect if the user closes the popup without completing verification.
   // Cross-origin popups can transiently report closed===true during navigation,
   // so we require multiple consecutive readings before declaring cancellation.
+  // We also give a grace period after the popup closes, in case the proof is
+  // still being delivered via the localStorage fallback (the popup writes to
+  // localStorage, then closes — the storage event may arrive slightly after).
   let closedCount = 0;
+  let closedAt = 0;
   const closedCheck = setInterval(() => {
     if (popup.closed) {
       closedCount++;
       if (closedCount < 3) return;  // require 3 consecutive readings (~1.5s)
+      if (!closedAt) closedAt = Date.now();
+      // Grace period: wait 2s after the popup closes for the storage event
+      // to arrive (the popup writes to localStorage right before closing).
+      if (Date.now() - closedAt < 2000) return;
     } else {
       closedCount = 0;
+      closedAt = 0;
       return;
     }
 
     clearInterval(closedCheck);
     window.removeEventListener('message', messageListener);
+    window.removeEventListener('storage', storageListener);
     if (settled) return;
     settled = true;
+
+    // Clean up localStorage if still present.
+    try { localStorage.removeItem('prestige:webauthn_proof'); } catch {}
 
     if (!passkeyVerified) {
       if (verifyBtn) {
