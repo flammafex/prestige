@@ -267,6 +267,12 @@ export class Prestige {
       petitionStatus,
       timeRemaining: ballot.deadline > now ? ballot.deadline - now : 0,
       revealTimeRemaining: ballot.revealDeadline > now ? ballot.revealDeadline - now : 0,
+      voterGate: {
+        type: this.voterGate.type,
+        ...(this.voterGate.type === 'freebird' && {
+          freebirdIssuerUrl: this.config.voterGateFreebirdIssuerUrl ?? this.config.freebirdIssuerUrl,
+        }),
+      },
     };
   }
 
@@ -591,6 +597,10 @@ interface BallotStatus {
   petitionStatus: PetitionStatus | null;
   timeRemaining: number;
   revealTimeRemaining: number;
+  voterGate: {
+    type: 'open' | 'freebird' | 'allowlist';
+    freebirdIssuerUrl?: string;
+  };
 }
 
 /**

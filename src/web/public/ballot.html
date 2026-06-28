@@ -116,6 +116,24 @@
         <div id="voting-section" class="hidden">
           <div id="vote-type-label" class="vote-type-label hidden">Single Choice</div>
 
+          <!-- Passkey verification step (shown only for freebird voter gate) -->
+          <div id="passkey-verify-section" class="hidden" style="margin-bottom: 1rem;">
+            <div class="alert alert-info" style="margin-bottom: 0.75rem;">
+              <strong>Verify with a passkey to vote.</strong>
+              This ballot requires passkey verification to prevent duplicate votes.
+            </div>
+
+            <button type="button" class="btn btn-primary btn-block" id="passkey-verify-btn">
+              Verify with passkey
+            </button>
+
+            <div id="passkey-verified-badge" class="alert alert-success hidden" style="margin-top: 0.75rem; margin-bottom: 0;">
+              <span aria-hidden="true">&#10003;</span> Passkey verified
+            </div>
+
+            <div id="passkey-error" class="alert alert-error hidden" style="margin-top: 0.75rem; margin-bottom: 0;"></div>
+          </div>
+
           <div class="alert alert-info" style="margin-bottom: 1rem;">
             <strong>Your vote is a commitment, not a final ballot.</strong>
             When you cast your vote, only a cryptographic commitment is sent —

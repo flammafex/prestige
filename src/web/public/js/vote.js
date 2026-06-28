@@ -14,8 +14,29 @@ let rankedChoices = [];           // For ranked choice voting
 let choiceScores = {};            // For score voting
 let timerInterval = null;
 
+// Passkey / sybil-proof state (freebird voter gate only).
+// The proof is kept in memory only — never persisted to localStorage/IndexedDB.
+let voterGateInfo = null;        // { type, freebirdIssuerUrl? }
+let sybilProof = null;           // webauthn proof object from the issuer popup
+let passkeyVerified = false;     // mirrors sybilProof presence for UI gating
+
 function isOfflineError(error) {
   return !navigator.onLine || error?.code === 'OFFLINE' || error?.status === 503;
+}
+
+/**
+ * Heuristic for detecting a rejected/expired passkey (sybil) proof.
+ *
+ * The Freebird adapter surfaces issuer failures with codes like
+ * ISSUE_FAILED / TOKEN_ISSUE_FAILED, or messages mentioning the proof/sybil.
+ * We treat any of these as "the proof was rejected — re-verify".
+ */
+function isPasskeyProofError(error) {
+  if (!error) return false;
+  const code = String(error.code || '').toUpperCase();
+  const msg = String(error.message || '').toLowerCase();
+  if (code === 'ISSUE_FAILED' || code === 'TOKEN_ISSUE_FAILED') return true;
+  return /sybil|passkey|webauthn|proof/i.test(msg);
 }
 
 /**
@@ -54,6 +75,7 @@ async function loadBallot() {
     // Get ballot status
     const status = await api.getBallotStatus(ballotId);
     ballot = status.ballot;
+    voterGateInfo = status.voterGate || null;
 
     // Hide loading
     loadingCard.classList.add('hidden');
@@ -163,8 +185,120 @@ function showVotingSection() {
 
   section.classList.remove('hidden');
 
+  // Configure the passkey verification step based on the voter gate.
+  // For freebird gates, the user must verify with a passkey before voting.
+  // For other gates, the step stays hidden and the vote button behaves as before.
+  configurePasskeySection();
+
   // Set up form handler
   document.getElementById('vote-form').addEventListener('submit', handleVoteSubmit);
+}
+
+/**
+ * Show/hide the passkey verification step based on the ballot's voter gate.
+ * When the gate is freebird, the verify button is shown and the vote button
+ * is held disabled until a passkey proof is acquired.
+ */
+function configurePasskeySection() {
+  const passkeySection = document.getElementById('passkey-verify-section');
+  const verifyBtn = document.getElementById('passkey-verify-btn');
+  if (!passkeySection || !verifyBtn) return;
+
+  // Reset any stale UI from a previous ballot load.
+  resetPasskeyUi();
+
+  if (voterGateInfo?.type === 'freebird') {
+    passkeySection.classList.remove('hidden');
+    verifyBtn.removeEventListener('click', verifyWithPasskey);
+    verifyBtn.addEventListener('click', verifyWithPasskey);
+  } else {
+    passkeySection.classList.add('hidden');
+    verifyBtn.removeEventListener('click', verifyWithPasskey);
+  }
+
+  // Re-evaluate the vote button's enabled state for the current gate.
+  updateVoteButtonEnabled();
+}
+
+/**
+ * Reset passkey UI elements to their initial (unverified) state.
+ * Does NOT clear sybilProof/passkeyVerified — callers use resetPasskeyProof()
+ * for that. This only touches the DOM.
+ */
+function resetPasskeyUi() {
+  const verifyBtn = document.getElementById('passkey-verify-btn');
+  const verifiedBadge = document.getElementById('passkey-verified-badge');
+  const errorArea = document.getElementById('passkey-error');
+  if (verifyBtn) {
+    verifyBtn.disabled = false;
+    verifyBtn.textContent = 'Verify with passkey';
+  }
+  if (verifiedBadge) verifiedBadge.classList.add('hidden');
+  if (errorArea) {
+    errorArea.classList.add('hidden');
+    errorArea.textContent = '';
+  }
+}
+
+/**
+ * Clear any held passkey proof and reset the UI back to "needs verification".
+ * Used when a proof is rejected as expired/invalid and the user must re-verify.
+ */
+function resetPasskeyProof(message) {
+  sybilProof = null;
+  passkeyVerified = false;
+  resetPasskeyUi();
+  const errorArea = document.getElementById('passkey-error');
+  if (errorArea && message) {
+    errorArea.textContent = message;
+    errorArea.classList.remove('hidden');
+  }
+  updateVoteButtonEnabled();
+}
+
+/**
+ * Decide whether the Cast Vote button should be enabled.
+ *
+ * The vote button is enabled only when BOTH:
+ *   (a) the current vote-type selection is valid, AND
+ *   (b) either the voter gate is not freebird, or the passkey has been verified.
+ *
+ * Selection validity is computed by re-running each vote type's existing
+ * check; this centralizes the gate so the per-type handlers don't need to
+ * know about passkeys.
+ */
+function updateVoteButtonEnabled() {
+  const btn = document.getElementById('vote-btn');
+  if (!btn) return;
+
+  // If a freebird gate is active and the passkey hasn't been verified yet,
+  // the button stays disabled regardless of selection state.
+  if (voterGateInfo?.type === 'freebird' && !passkeyVerified) {
+    btn.disabled = true;
+    return;
+  }
+
+  // Otherwise, mirror the existing per-type selection rules.
+  const voteType = ballot?.voteType?.type ?? 'single';
+  switch (voteType) {
+    case 'single':
+      btn.disabled = !selectedChoice;
+      break;
+    case 'approval':
+      btn.disabled = selectedChoices.length === 0;
+      break;
+    case 'ranked': {
+      const minRankings = ballot?.voteType?.minRankings ?? 1;
+      btn.disabled = rankedChoices.length < minRankings;
+      break;
+    }
+    case 'score':
+      // Score voting is always valid (defaults are in place).
+      btn.disabled = false;
+      break;
+    default:
+      btn.disabled = false;
+  }
 }
 
 /**
@@ -248,7 +382,7 @@ function renderScoreChoices(container) {
   `).join('');
 
   // Enable vote button immediately for score voting
-  document.getElementById('vote-btn').disabled = false;
+  updateVoteButtonEnabled();
 }
 
 /**
@@ -266,8 +400,8 @@ function selectChoice(element) {
   element.querySelector('input').checked = true;
   selectedChoice = element.dataset.choice;
 
-  // Enable vote button
-  document.getElementById('vote-btn').disabled = false;
+  // Enable vote button (subject to passkey gate)
+  updateVoteButtonEnabled();
 }
 
 /**
@@ -289,8 +423,8 @@ function toggleApproval(element) {
     checkbox.checked = true;
   }
 
-  // Enable vote button if at least one selected
-  document.getElementById('vote-btn').disabled = selectedChoices.length === 0;
+  // Enable vote button if at least one selected (subject to passkey gate)
+  updateVoteButtonEnabled();
 }
 
 /**
@@ -386,8 +520,7 @@ function updateRankedDisplay() {
  * Validate ranked vote meets requirements
  */
 function validateRankedVote() {
-  const minRankings = ballot.voteType?.minRankings ?? 1;
-  document.getElementById('vote-btn').disabled = rankedChoices.length < minRankings;
+  updateVoteButtonEnabled();
 }
 
 /**
@@ -396,6 +529,126 @@ function validateRankedVote() {
 function updateScore(choice, value, index) {
   choiceScores[choice] = parseInt(value, 10);
   document.getElementById(`score-value-${index}`).textContent = value;
+}
+
+/**
+ * Open the Freebird WebAuthn popup so the user can verify with a passkey.
+ *
+ * The popup posts a message back to this window with the webauthn proof. The
+ * proof is held in memory only and attached to the token request when voting.
+ * The `state` nonce is generated here and validated on the message event to
+ * prevent proof injection from a different origin or session.
+ */
+async function verifyWithPasskey() {
+  const issuerUrl = voterGateInfo?.freebirdIssuerUrl;
+  const verifyBtn = document.getElementById('passkey-verify-btn');
+  const errorArea = document.getElementById('passkey-error');
+
+  if (!issuerUrl) {
+    if (errorArea) {
+      errorArea.textContent = 'Passkey verification is not configured for this ballot.';
+      errorArea.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // Clear any previous error.
+  if (errorArea) {
+    errorArea.classList.add('hidden');
+    errorArea.textContent = '';
+  }
+
+  let expectedOrigin;
+  try {
+    expectedOrigin = new URL(issuerUrl).origin;
+  } catch {
+    if (errorArea) {
+      errorArea.textContent = 'Passkey issuer URL is invalid.';
+      errorArea.classList.remove('hidden');
+    }
+    return;
+  }
+
+  const state = crypto.randomUUID();
+  const targetOrigin = window.location.origin;
+  const popupUrl =
+    `${issuerUrl}/webauthn/authenticate` +
+    `?state=${encodeURIComponent(state)}` +
+    `&target_origin=${encodeURIComponent(targetOrigin)}`;
+
+  const popup = window.open(popupUrl, 'freebird-webauthn', 'width=480,height=720');
+  if (!popup) {
+    if (errorArea) {
+      errorArea.textContent = 'Popup blocked. Allow popups for this site and try again.';
+      errorArea.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // Mark the button as waiting; the user is now interacting with the popup.
+  if (verifyBtn) {
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = 'Waiting for passkey...';
+  }
+
+  let settled = false;
+
+  const messageListener = (event) => {
+    // Only accept messages from the Freebird issuer origin.
+    if (event.origin !== expectedOrigin) return;
+    if (event.data?.type !== 'freebird.webauthn_proof') return;
+    // Validate the state nonce to ensure this proof is for THIS request.
+    if (event.data.state !== state) return;
+
+    window.removeEventListener('message', messageListener);
+    if (settled) return;
+    settled = true;
+    clearInterval(closedCheck);
+
+    sybilProof = event.data.proof || null;
+    passkeyVerified = !!sybilProof;
+
+    if (passkeyVerified) {
+      if (verifyBtn) {
+        verifyBtn.classList.add('hidden');
+      }
+      const badge = document.getElementById('passkey-verified-badge');
+      if (badge) badge.classList.remove('hidden');
+    } else {
+      if (verifyBtn) {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify with passkey';
+      }
+      if (errorArea) {
+        errorArea.textContent = 'Passkey verification returned no proof. Please try again.';
+        errorArea.classList.remove('hidden');
+      }
+    }
+    updateVoteButtonEnabled();
+  };
+
+  window.addEventListener('message', messageListener);
+
+  // Detect if the user closes the popup without completing verification.
+  const closedCheck = setInterval(() => {
+    if (popup.closed) {
+      clearInterval(closedCheck);
+      window.removeEventListener('message', messageListener);
+      if (settled) return;
+      settled = true;
+
+      if (!passkeyVerified) {
+        if (verifyBtn) {
+          verifyBtn.disabled = false;
+          verifyBtn.textContent = 'Verify with passkey';
+        }
+        if (errorArea) {
+          errorArea.textContent = 'Passkey verification was cancelled.';
+          errorArea.classList.remove('hidden');
+        }
+      }
+    }
+  }, 500);
 }
 
 /**
@@ -417,6 +670,9 @@ async function requestSignedEligibilityToken() {
     publicKey,
     signature,
     nonce: challengeResponse.nonce,
+    // Attach the passkey sybil proof when present (freebird voter gate).
+    // The proof is short-lived; the issuer rejects expired/invalid ones.
+    ...(sybilProof && { sybilProof }),
   });
 }
 
@@ -523,6 +779,14 @@ async function handleVoteSubmit(e) {
     ui.showToast(ui.humanizeError(error), 'error');
     btn.disabled = false;
     btn.textContent = 'Cast Vote';
+
+    // If the issuer rejected the passkey proof (expired, invalid, or missing),
+    // reset the passkey state so the user can re-verify before retrying.
+    if (isPasskeyProofError(error) && voterGateInfo?.type === 'freebird') {
+      resetPasskeyProof(
+        'Your passkey may have expired. Please verify again.'
+      );
+    }
   }
 }
 

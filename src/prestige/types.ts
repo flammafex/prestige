@@ -378,11 +378,17 @@ export interface SubmitRevealRequest {
   voteData?: VoteData;
 }
 
+export interface VoterGateInfo {
+  type: VoterGateType;
+  freebirdIssuerUrl?: string;
+}
+
 export interface BallotStatusResponse {
   ballot: Ballot;
   voteCount: number;
   status: BallotStatus;
   timeRemaining?: number;
+  voterGate?: VoterGateInfo;
 }
 
 export interface ResultsResponse {
