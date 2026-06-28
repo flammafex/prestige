@@ -25,6 +25,52 @@ function isOfflineError(error) {
 }
 
 /**
+ * Check whether this page was loaded as a WebAuthn return redirect.
+ *
+ * When the Freebird issuer's WebAuthn client cannot use postMessage (e.g.
+ * window.opener is null due to cross-origin isolation), it redirects the
+ * popup back to Prestige with the proof in the URL fragment:
+ *   #state=<nonce>&sybil_proof=<json>
+ *
+ * If we detect this fragment and have an opener, we forward the proof via
+ * postMessage (same-origin, so window.opener is reliable) and close the popup.
+ */
+function handleWebAuthnReturn() {
+  const hash = window.location.hash.slice(1);
+  if (!hash) return;
+
+  const params = new URLSearchParams(hash);
+  const state = params.get('state');
+  const proofStr = params.get('sybil_proof');
+  if (!state || !proofStr) return;
+
+  // Clear the fragment so we don't reprocess on refresh.
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+
+  let proof;
+  try {
+    proof = JSON.parse(proofStr);
+  } catch {
+    return;
+  }
+
+  if (window.opener) {
+    window.opener.postMessage(
+      { type: 'freebird.webauthn_proof', proof, state, viaRedirect: true },
+      window.location.origin
+    );
+  }
+
+  // Show a minimal "closing" page in the popup.
+  document.body.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;color:#116932;font-size:1.1rem;">Passkey verified. Closing...</div>';
+  setTimeout(() => window.close(), 500);
+}
+
+// Run before any page initialization.
+handleWebAuthnReturn();
+
+/**
  * Heuristic for detecting a rejected/expired passkey (sybil) proof.
  *
  * The Freebird adapter surfaces issuer failures with codes like
@@ -571,10 +617,15 @@ async function verifyWithPasskey() {
 
   const state = crypto.randomUUID();
   const targetOrigin = window.location.origin;
+  // return_to is a fallback for when postMessage fails (e.g. cross-origin
+  // opener isolation). The issuer redirects the popup back here with the
+  // proof in the URL fragment; handleWebAuthnReturn() picks it up.
+  const returnUrl = window.location.origin + window.location.pathname + window.location.search;
   const popupUrl =
     `${issuerUrl}/webauthn/authenticate` +
     `?state=${encodeURIComponent(state)}` +
-    `&target_origin=${encodeURIComponent(targetOrigin)}`;
+    `&target_origin=${encodeURIComponent(targetOrigin)}` +
+    `&return_to=${encodeURIComponent(returnUrl)}`;
 
   const popup = window.open(popupUrl, 'freebird-webauthn', 'width=480,height=720');
   if (!popup) {
@@ -593,9 +644,13 @@ async function verifyWithPasskey() {
 
   let settled = false;
 
+  // Accept messages from both the Freebird issuer origin (direct postMessage)
+  // and our own origin (the return_to redirect path, where the popup navigates
+  // back to Prestige and handleWebAuthnReturn forwards the proof).
+  const ownOrigin = window.location.origin;
+
   const messageListener = (event) => {
-    // Only accept messages from the Freebird issuer origin.
-    if (event.origin !== expectedOrigin) return;
+    if (event.origin !== expectedOrigin && event.origin !== ownOrigin) return;
     if (event.data?.type !== 'freebird.webauthn_proof') return;
     // Validate the state nonce to ensure this proof is for THIS request.
     if (event.data.state !== state) return;
@@ -630,22 +685,31 @@ async function verifyWithPasskey() {
   window.addEventListener('message', messageListener);
 
   // Detect if the user closes the popup without completing verification.
+  // Cross-origin popups can transiently report closed===true during navigation,
+  // so we require multiple consecutive readings before declaring cancellation.
+  let closedCount = 0;
   const closedCheck = setInterval(() => {
     if (popup.closed) {
-      clearInterval(closedCheck);
-      window.removeEventListener('message', messageListener);
-      if (settled) return;
-      settled = true;
+      closedCount++;
+      if (closedCount < 3) return;  // require 3 consecutive readings (~1.5s)
+    } else {
+      closedCount = 0;
+      return;
+    }
 
-      if (!passkeyVerified) {
-        if (verifyBtn) {
-          verifyBtn.disabled = false;
-          verifyBtn.textContent = 'Verify with passkey';
-        }
-        if (errorArea) {
-          errorArea.textContent = 'Passkey verification was cancelled.';
-          errorArea.classList.remove('hidden');
-        }
+    clearInterval(closedCheck);
+    window.removeEventListener('message', messageListener);
+    if (settled) return;
+    settled = true;
+
+    if (!passkeyVerified) {
+      if (verifyBtn) {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify with passkey';
+      }
+      if (errorArea) {
+        errorArea.textContent = 'Passkey verification was cancelled.';
+        errorArea.classList.remove('hidden');
       }
     }
   }, 500);
